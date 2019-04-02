@@ -262,16 +262,16 @@ defmodule Commanded.Event.Handler do
     quote location: :keep do
       @before_compile unquote(__MODULE__)
 
-      @behaviour Commanded.Event.Handler
+      @behaviour Handler
 
       @opts unquote(opts) || []
-      @name Commanded.Event.Handler.parse_name(__MODULE__, @opts[:name])
+      @name Handler.parse_name(__MODULE__, @opts[:name])
 
       @doc false
       def start_link(opts \\ []) do
-        opts = Commanded.Event.Handler.start_opts(__MODULE__, Keyword.drop(@opts, [:name]), opts)
+        opts = Handler.start_opts(__MODULE__, Keyword.drop(@opts, [:concurrency, :name]), opts)
 
-        Commanded.Event.Handler.start_link(@name, __MODULE__, opts)
+        Handler.start_link(@name, __MODULE__, opts)
       end
 
       @doc """
@@ -286,14 +286,26 @@ defmodule Commanded.Event.Handler do
 
       """
       def child_spec(opts) do
-        default = %{
-          id: {__MODULE__, @name},
-          start: {__MODULE__, :start_link, [opts]},
-          restart: :permanent,
-          type: :worker
-        }
+        {concurrency, opts} = Keyword.pop(opts, :concurrency, 1)
 
-        Supervisor.child_spec(default, [])
+        spec =
+          case concurrency do
+            1 ->
+              %{
+                id: {__MODULE__, @name},
+                start: {__MODULE__, :start_link, [opts]},
+                restart: :permanent,
+                type: :worker
+              }
+
+            concurrency when is_integer(concurrency) and concurrency > 1 ->
+              %{}
+
+            invalid ->
+              raise "Invalid `:concurrency` expected a positive integer: " <> inspect(concurrency)
+          end
+
+        Supervisor.child_spec(spec, [])
       end
 
       @doc false
