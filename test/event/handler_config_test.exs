@@ -9,7 +9,12 @@ defmodule Commanded.Event.HandlerConfigTest do
   test "should default to `:eventual` consistency and start from `:origin`" do
     {:ok, handler} = DefaultConfigHandler.start_link()
 
-    assert_config(handler, consistency: :eventual, start_from: :origin, subscribe_to: :all)
+    assert_config(handler,
+      concurrency: 1,
+      consistency: :eventual,
+      start_from: :origin,
+      subscribe_to: :all
+    )
   end
 
   describe "global config change to default consistency" do
@@ -17,7 +22,12 @@ defmodule Commanded.Event.HandlerConfigTest do
       Mix.Config.persist(commanded: [default_consistency: :strong])
       {:ok, handler} = DefaultConfigHandler.start_link()
 
-      assert_config(handler, consistency: :strong, start_from: :origin, subscribe_to: :all)
+      assert_config(handler,
+        concurrency: 1,
+        consistency: :strong,
+        start_from: :origin,
+        subscribe_to: :all
+      )
 
       Mix.Config.persist(commanded: [default_consistency: :eventual])
     end
@@ -35,7 +45,12 @@ defmodule Commanded.Event.HandlerConfigTest do
     test "should use config defined in handler" do
       {:ok, handler} = ExampleHandler.start_link()
 
-      assert_config(handler, consistency: :strong, start_from: :current, subscribe_to: "stream1")
+      assert_config(handler,
+        concurrency: 1,
+        consistency: :strong,
+        start_from: :current,
+        subscribe_to: "stream1"
+      )
     end
 
     test "should use overriden config when provided" do
@@ -46,13 +61,23 @@ defmodule Commanded.Event.HandlerConfigTest do
           subscribe_to: "stream2"
         )
 
-      assert_config(handler, consistency: :eventual, start_from: :origin, subscribe_to: "stream2")
+      assert_config(handler,
+        concurrency: 1,
+        consistency: :eventual,
+        start_from: :origin,
+        subscribe_to: "stream2"
+      )
     end
 
     test "should use default config when not provided" do
       {:ok, handler} = ExampleHandler.start_link(start_from: :origin)
 
-      assert_config(handler, consistency: :strong, start_from: :origin, subscribe_to: "stream1")
+      assert_config(handler,
+        concurrency: 1,
+        consistency: :strong,
+        start_from: :origin,
+        subscribe_to: "stream1"
+      )
     end
   end
 
@@ -68,7 +93,12 @@ defmodule Commanded.Event.HandlerConfigTest do
 
       [{_, handler, _, _}] = Supervisor.which_children(sup)
 
-      assert_config(handler, consistency: :strong, start_from: :current, subscribe_to: "stream1")
+      assert_config(handler,
+        concurrency: 1,
+        consistency: :strong,
+        start_from: :current,
+        subscribe_to: "stream1"
+      )
     end
 
     test "should use overriden config when provided" do
@@ -82,7 +112,12 @@ defmodule Commanded.Event.HandlerConfigTest do
 
       [{_, handler, _, _}] = Supervisor.which_children(sup)
 
-      assert_config(handler, consistency: :eventual, start_from: :origin, subscribe_to: "stream1")
+      assert_config(handler,
+        concurrency: 1,
+        consistency: :eventual,
+        start_from: :origin,
+        subscribe_to: "stream1"
+      )
     end
   end
 

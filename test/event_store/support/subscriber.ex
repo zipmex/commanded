@@ -15,7 +15,8 @@ defmodule Commanded.EventStore.Subscriber do
   end
 
   def init(%State{} = state) do
-    {:ok, subscription} = EventStore.subscribe_to(:all, "subscriber", self(), :origin)
+    {:ok, subscription} =
+      EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin, concurrency: 1)
 
     {:ok, %State{state | subscription: subscription}}
   end

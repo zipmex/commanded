@@ -9,7 +9,6 @@ defmodule Commanded.EventStore.Adapters.InMemory do
 
   defmodule State do
     @moduledoc false
-
     defstruct [
       :serializer,
       persisted_events: [],
@@ -21,8 +20,25 @@ defmodule Commanded.EventStore.Adapters.InMemory do
     ]
   end
 
-  alias Commanded.EventStore.Adapters.InMemory.{State, Subscription}
-  alias Commanded.EventStore.{EventData, RecordedEvent, SnapshotData}
+  defmodule PersistentSubscription do
+    @moduledoc false
+    defstruct [
+      :stream_uuid,
+      :name,
+      :ref,
+      :start_from,
+      :concurrency,
+      subscriptions: [],
+      last_seen: 0
+    ]
+  end
+
+  alias Commanded.EventStore.Adapters.InMemory.State
+  alias Commanded.EventStore.Adapters.InMemory.Subscription
+  alias Commanded.EventStore.Adapters.InMemory.PersistentSubscription
+  alias Commanded.EventStore.EventData
+  alias Commanded.EventStore.RecordedEvent
+  alias Commanded.EventStore.SnapshotData
 
   def start_link(opts \\ []) do
     state = %State{serializer: Keyword.get(opts, :serializer)}
@@ -61,15 +77,15 @@ defmodule Commanded.EventStore.Adapters.InMemory do
   end
 
   @impl Commanded.EventStore
-  def subscribe_to(stream_uuid, subscription_name, subscriber, start_from) do
-    subscription = %Subscription{
+  def subscribe_to(stream_uuid, subscription_name, subscriber, opts) do
+    subscription = %PersistentSubscription{
       stream_uuid: stream_uuid,
       name: subscription_name,
-      subscriber: subscriber,
-      start_from: start_from
+      start_from: Keyword.get(opts, :start_from, :origin),
+      concurrency: Keyword.get(opts, :concurrency, 1)
     }
 
-    GenServer.call(__MODULE__, {:subscribe_to, subscription})
+    GenServer.call(__MODULE__, {:subscribe_to, subscription, subscriber})
   end
 
   @impl Commanded.EventStore
@@ -211,22 +227,30 @@ defmodule Commanded.EventStore.Adapters.InMemory do
   end
 
   @impl GenServer
-  def handle_call({:subscribe_to, %Subscription{} = subscription}, _from, %State{} = state) do
-    %Subscription{name: subscription_name, subscriber: subscriber} = subscription
+  def handle_call(
+        {:subscribe_to, %PersistentSubscription{} = subscription, subscriber},
+        _from,
+        %State{} = state
+      ) do
+    %PersistentSubscription{name: subscription_name} = subscription
     %State{persistent_subscriptions: subscriptions} = state
 
     {reply, state} =
       case Map.get(subscriptions, subscription_name) do
         nil ->
-          persistent_subscription(subscription, state)
+          persistent_subscription(subscription, subscriber, state)
 
-        %Subscription{subscriber: nil} = subscription ->
-          subscription = %Subscription{subscription | subscriber: subscriber}
-
-          persistent_subscription(subscription, state)
-
-        %Subscription{} ->
+        %PersistentSubscription{concurrency: 1} ->
           {{:error, :subscription_already_exists}, state}
+
+        %PersistentSubscription{concurrency: concurrency} = subscription ->
+          %PersistentSubscription{subscriptions: subscriptions} = subscription
+
+          if length(subscriptions) < concurrency do
+            persistent_subscription(subscription, subscriber, state)
+          else
+            {{:error, :too_many_subscribers}, state}
+          end
       end
 
     {:reply, reply, state}
@@ -234,21 +258,23 @@ defmodule Commanded.EventStore.Adapters.InMemory do
 
   @impl GenServer
   def handle_call({:unsubscribe, pid}, _from, %State{} = state) do
-    %State{persistent_subscriptions: subscriptions} = state
+    %State{persistent_subscriptions: persistent_subscriptions} = state
 
     {reply, state} =
-      case Enum.find(subscriptions, fn
-             {_name, %Subscription{subscriber: ^pid}} -> true
-             {_name, %Subscription{}} -> false
-           end) do
-        {subscription_name, %Subscription{} = subscription} ->
+      case persistent_subscription_by_pid(persistent_subscriptions, pid) do
+        {name, %PersistentSubscription{} = subscription} ->
+          %PersistentSubscription{subscriptions: subscriptions} = subscription
+
           :ok = stop_subscription(pid)
 
-          subscription = %Subscription{subscription | subscriber: nil, ref: nil}
+          subscription = %PersistentSubscription{
+            subscription
+            | subscriptions: subscriptions -- [pid]
+          }
 
           state = %State{
             state
-            | persistent_subscriptions: Map.put(subscriptions, subscription_name, subscription)
+            | persistent_subscriptions: Map.put(persistent_subscriptions, name, subscription)
           }
 
           {:ok, state}
@@ -262,14 +288,14 @@ defmodule Commanded.EventStore.Adapters.InMemory do
 
   @impl GenServer
   def handle_call({:delete_subscription, stream_uuid, subscription_name}, _from, %State{} = state) do
-    %State{persistent_subscriptions: subscriptions} = state
+    %State{persistent_subscriptions: persistent_subscriptions} = state
 
     {reply, state} =
-      case Map.get(subscriptions, subscription_name) do
-        %Subscription{stream_uuid: ^stream_uuid, subscriber: nil} ->
+      case Map.get(persistent_subscriptions, subscription_name) do
+        %PersistentSubscription{stream_uuid: ^stream_uuid, subscriptions: []} ->
           state = %State{
             state
-            | persistent_subscriptions: Map.delete(subscriptions, subscription_name)
+            | persistent_subscriptions: Map.delete(persistent_subscriptions, subscription_name)
           }
 
           {:ok, state}
@@ -314,10 +340,12 @@ defmodule Commanded.EventStore.Adapters.InMemory do
   end
 
   def handle_call(:reset!, _from, %State{} = state) do
-    %State{serializer: serializer, persistent_subscriptions: subscriptions} = state
+    %State{serializer: serializer, persistent_subscriptions: persistent_subscriptions} = state
 
-    for {_name, %Subscription{subscriber: subscriber}} <- subscriptions, is_pid(subscriber) do
-      :ok = stop_subscription(subscriber)
+    for {_name, %PersistentSubscription{subscriptions: subscriptions}} <- persistent_subscriptions do
+      for subscription <- subscriptions, is_pid(subscription) do
+        :ok = stop_subscription(subscription)
+      end
     end
 
     {:reply, :ok, %State{serializer: serializer}}
@@ -325,11 +353,12 @@ defmodule Commanded.EventStore.Adapters.InMemory do
 
   @impl GenServer
   def handle_cast({:ack_event, event, subscriber}, %State{} = state) do
-    %State{persistent_subscriptions: subscriptions} = state
+    %State{persistent_subscriptions: persistent_subscriptions} = state
 
     state = %State{
       state
-      | persistent_subscriptions: ack_subscription_by_pid(subscriptions, event, subscriber)
+      | persistent_subscriptions:
+          ack_subscription_by_pid(persistent_subscriptions, event, subscriber)
     }
 
     {:noreply, state}
@@ -337,11 +366,12 @@ defmodule Commanded.EventStore.Adapters.InMemory do
 
   @impl GenServer
   def handle_info({:DOWN, _ref, :process, pid, _reason}, %State{} = state) do
-    %State{persistent_subscriptions: persistent, transient_subscribers: transient} = state
+    %State{persistent_subscriptions: persistent_subscriptions, transient_subscribers: transient} =
+      state
 
     state = %State{
       state
-      | persistent_subscriptions: remove_subscriber_by_pid(persistent, pid),
+      | persistent_subscriptions: remove_subscriber_by_pid(persistent_subscriptions, pid),
         transient_subscribers: remove_transient_subscriber_by_pid(transient, pid)
     }
 
@@ -425,24 +455,29 @@ defmodule Commanded.EventStore.Adapters.InMemory do
     }
   end
 
-  defp persistent_subscription(%Subscription{} = subscription, %State{} = state) do
-    %Subscription{name: subscription_name} = subscription
-    %State{persistent_subscriptions: subscriptions} = state
+  defp persistent_subscription(
+         %PersistentSubscription{} = subscription,
+         subscriber,
+         %State{} = state
+       ) do
+    %PersistentSubscription{name: subscription_name, subscriptions: subscriptions} = subscription
+    %State{persistent_subscriptions: persistent_subscriptions} = state
 
-    subscription_spec = subscription |> Subscription.child_spec() |> Map.put(:restart, :temporary)
+    subscription_spec = subscriber |> Subscription.child_spec() |> Map.put(:restart, :temporary)
 
     {:ok, pid} =
       DynamicSupervisor.start_child(__MODULE__.SubscriptionsSupervisor, subscription_spec)
 
     Process.monitor(pid)
 
-    subscription = %Subscription{subscription | subscriber: pid}
+    subscription = %PersistentSubscription{subscription | subscriptions: [pid | subscriptions]}
 
-    catch_up(subscription, state)
+    :ok = catch_up(subscription, state)
 
     state = %State{
       state
-      | persistent_subscriptions: Map.put(subscriptions, subscription_name, subscription)
+      | persistent_subscriptions:
+          Map.put(persistent_subscriptions, subscription_name, subscription)
     }
 
     {{:ok, pid}, state}
@@ -452,27 +487,43 @@ defmodule Commanded.EventStore.Adapters.InMemory do
     DynamicSupervisor.terminate_child(__MODULE__.SubscriptionsSupervisor, subscription)
   end
 
-  defp remove_subscriber_by_pid(subscriptions, pid) do
-    Enum.reduce(subscriptions, subscriptions, fn
-      {name, %Subscription{subscriber: ^pid} = subscription}, acc ->
-        Map.put(acc, name, %Subscription{subscription | subscriber: nil})
+  defp remove_subscriber_by_pid(persistent_subscriptions, pid) do
+    case persistent_subscription_by_pid(persistent_subscriptions, pid) do
+      {name, %PersistentSubscription{} = subscription} ->
+        %PersistentSubscription{subscriptions: subscriptions} = subscription
 
-      _, acc ->
-        acc
-    end)
+        subscription = %PersistentSubscription{
+          subscription
+          | subscriptions: subscriptions -- [pid]
+        }
+
+        Map.put(persistent_subscriptions, name, subscription)
+
+      nil ->
+        persistent_subscriptions
+    end
   end
 
-  defp ack_subscription_by_pid(subscriptions, %RecordedEvent{} = event, pid) do
+  defp ack_subscription_by_pid(persistent_subscriptions, %RecordedEvent{} = event, pid) do
     %RecordedEvent{event_number: event_number} = event
 
-    Enum.reduce(subscriptions, subscriptions, fn
-      {name, %Subscription{subscriber: subscriber} = subscription}, acc when subscriber == pid ->
-        subscription = %Subscription{subscription | last_seen: event_number}
+    case persistent_subscription_by_pid(persistent_subscriptions, pid) do
+      {name, %PersistentSubscription{} = subscription} ->
+        subscription = %PersistentSubscription{subscription | last_seen: event_number}
 
-        Map.put(acc, name, subscription)
+        Map.put(persistent_subscriptions, name, subscription)
 
-      _, acc ->
-        acc
+      nil ->
+        persistent_subscriptions
+    end
+  end
+
+  defp persistent_subscription_by_pid(persistent_subscriptions, pid) do
+    Enum.find(persistent_subscriptions, fn
+      {_name, %PersistentSubscription{} = subscription} ->
+        %PersistentSubscription{subscriptions: subscriptions} = subscription
+
+        Enum.member?(subscriptions, pid)
     end)
   end
 
@@ -483,11 +534,11 @@ defmodule Commanded.EventStore.Adapters.InMemory do
     end)
   end
 
-  defp catch_up(%Subscription{subscriber: nil}, _state), do: :ok
-  defp catch_up(%Subscription{start_from: :current}, _state), do: :ok
+  defp catch_up(%PersistentSubscription{subscriptions: []}, _state), do: :ok
+  defp catch_up(%PersistentSubscription{start_from: :current}, _state), do: :ok
 
-  defp catch_up(%Subscription{stream_uuid: :all} = subscription, %State{} = state) do
-    %Subscription{subscriber: subscriber, last_seen: last_seen} = subscription
+  defp catch_up(%PersistentSubscription{stream_uuid: :all} = subscription, %State{} = state) do
+    %PersistentSubscription{last_seen: last_seen} = subscription
     %State{persisted_events: persisted_events} = state
 
     unseen_events =
@@ -495,16 +546,12 @@ defmodule Commanded.EventStore.Adapters.InMemory do
       |> Enum.reverse()
       |> Enum.drop(last_seen)
       |> Enum.map(&deserialize(&1, state))
-      |> Enum.chunk_by(fn %RecordedEvent{stream_id: stream_id} -> stream_id end)
 
-    for events <- unseen_events do
-      send(subscriber, {:events, events})
-    end
+    publish_to_persistent_subscription(unseen_events, subscription)
   end
 
-  defp catch_up(%Subscription{} = subscription, %State{} = state) do
-    %Subscription{subscriber: subscriber, stream_uuid: stream_uuid, last_seen: last_seen} =
-      subscription
+  defp catch_up(%PersistentSubscription{} = subscription, %State{} = state) do
+    %PersistentSubscription{stream_uuid: stream_uuid, last_seen: last_seen} = subscription
 
     %State{streams: streams} = state
 
@@ -519,7 +566,7 @@ defmodule Commanded.EventStore.Adapters.InMemory do
         :ok
 
       unseen_events ->
-        send(subscriber, {:events, unseen_events})
+        publish_to_persistent_subscription(unseen_events, subscription)
     end
   end
 
@@ -534,13 +581,26 @@ defmodule Commanded.EventStore.Adapters.InMemory do
   end
 
   defp publish_to_persistent_subscriptions(stream_uuid, events, %State{} = state) do
-    %State{persistent_subscriptions: subscriptions} = state
+    %State{persistent_subscriptions: persistent_subscriptions} = state
 
-    for {_name, %Subscription{subscriber: subscriber, stream_uuid: ^stream_uuid}} <-
-          subscriptions,
-        is_pid(subscriber) do
-      send(subscriber, {:events, events})
+    for {_name, %PersistentSubscription{stream_uuid: ^stream_uuid} = subscription} <-
+          persistent_subscriptions do
+      publish_to_persistent_subscription(events, subscription)
     end
+  end
+
+  defp publish_to_persistent_subscription(events, %PersistentSubscription{} = subscription) do
+    %PersistentSubscription{subscriptions: subscriptions} = subscription
+
+    for batch <- Enum.chunk_every(events, length(subscriptions)) do
+      batch
+      |> Enum.zip(subscriptions)
+      |> Enum.each(fn {event, subscription} ->
+        send(subscription, {:events, [event]})
+      end)
+    end
+
+    :ok
   end
 
   defp serialize(data, %State{serializer: nil}), do: data

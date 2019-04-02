@@ -51,7 +51,9 @@ defmodule Commanded.ProcessManagers.ProcessManagerSubscriptionTest do
   defp start_process_manager(subscription) do
     reply_to = self()
 
-    expect(MockEventStore, :subscribe_to, fn :all, "ExampleProcessManager", pm, :origin ->
+    expect(MockEventStore, :subscribe_to, fn :all, "ExampleProcessManager", pm, opts ->
+      assert Keyword.get(opts, :start_from) == :origin
+
       send(pm, {:subscribed, subscription})
       send(reply_to, {:subscribed, subscription})
 

@@ -9,7 +9,7 @@ defmodule Commanded.Event.HandlerInitTest do
   setup do
     reply_to = self()
 
-    expect(MockEventStore, :subscribe_to, fn :all, _handler_name, handler, _subscribe_from ->
+    expect(MockEventStore, :subscribe_to, fn :all, _handler_name, handler, _opts ->
       {:ok, handler}
     end)
 

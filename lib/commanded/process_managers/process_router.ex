@@ -24,7 +24,7 @@ defmodule Commanded.ProcessManagers.ProcessRouter do
       :event_timeout,
       :process_manager_name,
       :process_manager_module,
-      :subscribe_from,
+      :start_from,
       :supervisor,
       :subscription,
       :subscription_ref,
@@ -44,7 +44,7 @@ defmodule Commanded.ProcessManagers.ProcessRouter do
       process_manager_module: process_manager_module,
       command_dispatcher: command_dispatcher,
       consistency: opts[:consistency] || :eventual,
-      subscribe_from: opts[:start_from] || :origin,
+      start_from: opts[:start_from] || :origin,
       event_timeout: opts[:event_timeout]
     }
 
@@ -251,10 +251,13 @@ defmodule Commanded.ProcessManagers.ProcessRouter do
   end
 
   defp subscribe_to_all_streams(%State{} = state) do
-    %State{process_manager_name: process_manager_name, subscribe_from: subscribe_from} = state
+    %State{process_manager_name: process_manager_name, start_from: start_from} = state
 
     {:ok, subscription} =
-      EventStore.subscribe_to(:all, process_manager_name, self(), subscribe_from)
+      EventStore.subscribe_to(:all, process_manager_name, self(),
+        start_from: start_from,
+        concurrency: 1
+      )
 
     subscription_ref = Process.monitor(subscription)
 

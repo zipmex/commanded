@@ -43,7 +43,9 @@ defmodule Commanded.Event.EventHandlerSubscriptionTest do
   defp start_handler(subscription) do
     reply_to = self()
 
-    expect(MockEventStore, :subscribe_to, fn :all, "ExampleHandler", handler, :origin ->
+    expect(MockEventStore, :subscribe_to, fn :all, "ExampleHandler", handler, opts ->
+      assert Keyword.get(opts, :start_from) == :origin
+
       send(handler, {:subscribed, subscription})
       send(reply_to, {:subscribed, subscription})
 

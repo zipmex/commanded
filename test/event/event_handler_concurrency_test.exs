@@ -24,11 +24,20 @@ defmodule Commanded.Event.EventHandlerConcurrencyTest do
 
   describe "concurrent event handler" do
     setup do
-      {:ok, handler} = ConcurrentEventHandler.start_link()
-
       true = Process.register(self(), :test)
 
-      [handler: handler]
+      {:ok, supervisor} =
+        Supervisor.start_link([{ConcurrentEventHandler, []}], strategy: :one_for_one)
+
+      [supervisor: supervisor]
+    end
+
+    test "should start one child handler per requested concurrency", %{supervisor: supervisor} do
+      assert [{_id, handler_supervisor, :supervisor, _modules}] =
+               Supervisor.which_children(supervisor)
+
+      assert %{active: 5, specs: 5, supervisors: 0, workers: 5} =
+               Supervisor.count_children(handler_supervisor)
     end
 
     test "should call `init/0` callback once for each started handler" do

@@ -197,7 +197,7 @@ defmodule Commanded.Event.Handler do
 
   @type domain_event :: struct()
   @type metadata :: map()
-  @type subscribe_from :: :origin | :current | non_neg_integer()
+  @type start_from :: :origin | :current | non_neg_integer()
   @type consistency :: :eventual | :strong
 
   @doc """
@@ -269,7 +269,7 @@ defmodule Commanded.Event.Handler do
 
       @doc false
       def start_link(opts \\ []) do
-        opts = Handler.start_opts(__MODULE__, Keyword.drop(@opts, [:concurrency, :name]), opts)
+        opts = Handler.start_opts(__MODULE__, @opts, opts)
 
         Handler.start_link(@name, __MODULE__, opts)
       end
@@ -286,10 +286,10 @@ defmodule Commanded.Event.Handler do
 
       """
       def child_spec(opts) do
-        {concurrency, opts} = Keyword.pop(opts, :concurrency, 1)
+        opts = Keyword.merge(@opts, opts)
 
         spec =
-          case concurrency do
+          case Keyword.get(opts, :concurrency, 1) do
             1 ->
               %{
                 id: {__MODULE__, @name},
@@ -299,10 +299,17 @@ defmodule Commanded.Event.Handler do
               }
 
             concurrency when is_integer(concurrency) and concurrency > 1 ->
-              %{}
+              opts = Keyword.put(opts, :module, __MODULE__)
+
+              %{
+                id: {Handler.Supervisor, @name},
+                start: {Handler.Supervisor, :start_link, [opts]},
+                restart: :permanent,
+                type: :supervisor
+              }
 
             invalid ->
-              raise "Invalid `:concurrency` expected a positive integer: " <> inspect(concurrency)
+              raise "Invalid `:concurrency` expected a positive integer: " <> inspect(invalid)
           end
 
         Supervisor.child_spec(spec, [])
@@ -330,7 +337,11 @@ defmodule Commanded.Event.Handler do
     {valid, invalid} =
       module_opts
       |> Keyword.merge(local_opts)
-      |> Keyword.split([:consistency, :start_from, :subscribe_to] ++ additional_allowed_opts)
+      |> Keyword.drop([:name])
+      |> Keyword.split(
+        [:concurrency, :consistency, :index, :start_from, :subscribe_to] ++
+          additional_allowed_opts
+      )
 
     if Enum.any?(invalid) do
       raise "#{inspect(module)} specifies invalid options: #{inspect(Keyword.keys(invalid))}"
@@ -354,11 +365,12 @@ defmodule Commanded.Event.Handler do
 
   @doc false
   defstruct [
+    :concurrency,
     :consistency,
     :handler_name,
     :handler_module,
     :last_seen_event,
-    :subscribe_from,
+    :start_from,
     :subscribe_to,
     :subscription,
     :subscription_ref
@@ -366,20 +378,22 @@ defmodule Commanded.Event.Handler do
 
   @doc false
   def start_link(handler_name, handler_module, opts \\ []) do
-    name = name(handler_name)
+    name = name(handler_name, Keyword.get(opts, :index))
 
     handler = %Handler{
       handler_name: handler_name,
       handler_module: handler_module,
+      concurrency: concurrency(opts),
       consistency: consistency(opts),
-      subscribe_from: start_from(opts),
+      start_from: start_from(opts),
       subscribe_to: subscribe_to(opts)
     }
 
     Registration.start_link(name, __MODULE__, handler)
   end
 
-  defp name(name), do: {__MODULE__, name}
+  defp name(name, nil), do: {__MODULE__, name}
+  defp name(name, index), do: {__MODULE__, name, index}
 
   @doc false
   def init(%Handler{} = state) do
@@ -397,10 +411,19 @@ defmodule Commanded.Event.Handler do
 
   @doc false
   def handle_call(:config, _from, %Handler{} = state) do
-    %Handler{consistency: consistency, subscribe_from: subscribe_from, subscribe_to: subscribe_to} =
-      state
+    %Handler{
+      concurrency: concurrency,
+      consistency: consistency,
+      start_from: start_from,
+      subscribe_to: subscribe_to
+    } = state
 
-    config = [consistency: consistency, start_from: subscribe_from, subscribe_to: subscribe_to]
+    config = [
+      concurrency: concurrency,
+      consistency: consistency,
+      start_from: start_from,
+      subscribe_to: subscribe_to
+    ]
 
     {:reply, config, state}
   end
@@ -466,13 +489,17 @@ defmodule Commanded.Event.Handler do
 
   defp subscribe_to_events(%Handler{} = state) do
     %Handler{
+      concurrency: concurrency,
       handler_name: handler_name,
-      subscribe_from: subscribe_from,
+      start_from: start_from,
       subscribe_to: subscribe_to
     } = state
 
     {:ok, subscription} =
-      EventStore.subscribe_to(subscribe_to, handler_name, self(), subscribe_from)
+      EventStore.subscribe_to(subscribe_to, handler_name, self(),
+        start_from: start_from,
+        concurrency: concurrency
+      )
 
     subscription_ref = Process.monitor(subscription)
 
@@ -614,6 +641,13 @@ defmodule Commanded.Event.Handler do
     |> Map.from_struct()
     |> Map.take(@enrich_metadata_fields)
     |> Map.merge(metadata || %{})
+  end
+
+  defp concurrency(opts) do
+    case opts[:concurrency] || 1 do
+      concurrency when is_integer(concurrency) and concurrency >= 1 -> concurrency
+      invalid -> raise "Invalid `concurrency` option: #{inspect(invalid)}"
+    end
   end
 
   defp consistency(opts) do

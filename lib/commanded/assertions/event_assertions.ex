@@ -160,7 +160,8 @@ defmodule Commanded.Assertions.EventAssertions do
   def with_subscription(callback_fun) when is_function(callback_fun, 1) do
     subscription_name = UUID.uuid4()
 
-    {:ok, subscription} = EventStore.subscribe_to(:all, subscription_name, self(), :origin)
+    {:ok, subscription} =
+      EventStore.subscribe_to(:all, subscription_name, self(), start_from: :origin, concurrency: 1)
 
     assert_receive {:subscribed, ^subscription}, default_receive_timeout()
 

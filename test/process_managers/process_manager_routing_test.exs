@@ -12,7 +12,9 @@ defmodule Commanded.ProcessManagers.ProcessManagerRoutingTest do
 
   setup do
     expect(MockEventStore, :subscribe_to, fn
-      :all, _name, pid, :origin ->
+      :all, _name, pid, opts ->
+        assert Keyword.get(opts, :start_from) == :origin
+
         send(pid, {:subscribed, self()})
 
         {:ok, self()}

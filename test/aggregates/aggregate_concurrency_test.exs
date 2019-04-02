@@ -9,7 +9,7 @@ defmodule Commanded.Aggregates.AggregateConcurrencyTest do
 
   setup do
     expect(MockEventStore, :subscribe_to, fn
-      _stream_uuid, _handler_name, handler, _subscribe_from ->
+      _stream_uuid, _handler_name, handler, _opts ->
         {:ok, handler}
     end)
 
