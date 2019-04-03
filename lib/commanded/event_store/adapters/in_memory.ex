@@ -471,7 +471,7 @@ defmodule Commanded.EventStore.Adapters.InMemory do
 
     Process.monitor(pid)
 
-    subscription = %PersistentSubscription{subscription | subscriptions: [pid | subscriptions]}
+    subscription = %PersistentSubscription{subscription | subscriptions: subscriptions ++ [pid]}
 
     :ok = catch_up(subscription, state)
 

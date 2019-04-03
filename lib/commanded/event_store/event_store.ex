@@ -197,6 +197,7 @@ defmodule Commanded.EventStore do
   @spec subscribe_to(stream_uuid | :all, subscription_name, subscriber, subscription_options) ::
           {:ok, subscription}
           | {:error, :subscription_already_exists}
+          | {:error, :too_many_subscribers}
           | {:error, error}
   def subscribe_to(stream_uuid, subscription_name, subscriber, opts)
       when is_binary(subscription_name) and is_pid(subscriber) do
