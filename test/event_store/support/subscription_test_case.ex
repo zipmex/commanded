@@ -169,7 +169,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
         {:ok, _subscription} =
           EventStore.subscribe_to("stream1", "subscriber", self(), start_from: :origin)
 
-        assert {:error, :subscription_already_exists} ==
+        assert {:error, :too_many_subscribers} ==
                  EventStore.subscribe_to("stream1", "subscriber", self(), start_from: :origin)
       end
     end
@@ -238,31 +238,32 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
       test "should prevent duplicate subscriptions" do
         {:ok, _subscription} = subscribe_to_all()
 
-        assert {:error, :subscription_already_exists} == subscribe_to_all()
+        assert {:error, :too_many_subscribers} == subscribe_to_all()
       end
     end
 
     describe "persistent subscription concurrency" do
       test "should allow multiple subscribers to single subscription" do
-        {:ok, subscription1} = subscribe_to_all(concurrency: 2)
-        {:ok, subscription2} = subscribe_to_all(concurrency: 2)
+        {:ok, _subscriber1} = Subscriber.start_link(self(), concurrency: 2)
+        {:ok, _subscriber2} = Subscriber.start_link(self(), concurrency: 2)
 
-        assert_receive {:subscribed, ^subscription1}
-        assert_receive {:subscribed, ^subscription2}
+        assert_receive {:subscribed, _subscription1}
+        assert_receive {:subscribed, _subscription2}
         refute_receive {:subscribed, _subscription}
       end
 
       test "should prevent too many subscribers to single subscription" do
-        {:ok, _subscription} = subscribe_to_all(concurrency: 1)
+        {:ok, _subscriber} = Subscriber.start_link(self(), concurrency: 1)
 
-        assert {:error, :subscription_already_exists} = subscribe_to_all(concurrency: 1)
+        assert {:error, :too_many_subscribers} = Subscriber.start(self(), concurrency: 1)
       end
 
       test "should prevent too many subscribers to subscription with concurrency" do
-        {:ok, _subscription1} = subscribe_to_all(concurrency: 2)
-        {:ok, _subscription2} = subscribe_to_all(concurrency: 2)
+        {:ok, _subscriber1} = Subscriber.start_link(self(), concurrency: 3)
+        {:ok, _subscriber2} = Subscriber.start_link(self(), concurrency: 3)
+        {:ok, _subscriber3} = Subscriber.start_link(self(), concurrency: 3)
 
-        assert {:error, :too_many_subscribers} = subscribe_to_all(concurrency: 2)
+        assert {:error, :too_many_subscribers} = Subscriber.start(self(), concurrency: 3)
       end
 
       test "should distribute events amongst subscribers" do
@@ -271,8 +272,6 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
         assert_receive {:subscribed, subscription1}
         assert_receive {:subscribed, subscription2}
-
-        refute subscription1 == subscription2
 
         :ok = EventStore.append_to_stream("stream1", 0, build_events(4))
 
@@ -290,8 +289,6 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
         assert_receive {:subscribed, subscription1}
         assert_receive {:subscribed, subscription2}
-
-        refute subscription1 == subscription2
 
         :ok = EventStore.append_to_stream("stream1", 0, build_events(2))
 

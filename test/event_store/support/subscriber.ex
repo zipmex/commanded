@@ -19,28 +19,27 @@ defmodule Commanded.EventStore.Subscriber do
   alias Subscriber.State
 
   def start_link(owner, opts \\ []) when is_pid(owner) do
-    state = %State{
-      owner: owner,
-      concurrency: Keyword.get(opts, :concurrency, 1),
-      start_from: Keyword.get(opts, :start_from, :origin),
-      subscribe_to: Keyword.get(opts, :subscribe_to, :all)
-    }
+    GenServer.start_link(__MODULE__, state(owner, opts))
+  end
 
-    GenServer.start_link(__MODULE__, state)
+  def start(owner, opts \\ []) when is_pid(owner) do
+    GenServer.start(__MODULE__, state(owner, opts))
   end
 
   def init(%State{} = state) do
     %State{concurrency: concurrency, start_from: start_from, subscribe_to: subscribe_to} = state
 
-    {:ok, subscription} =
-      EventStore.subscribe_to(subscribe_to, "subscriber", self(),
-        start_from: start_from,
-        concurrency: concurrency
-      )
+    opts = [start_from: start_from, concurrency: concurrency]
 
-    state = %State{state | subscription: subscription}
+    case EventStore.subscribe_to(subscribe_to, "subscriber", self(), opts) do
+      {:ok, subscription} ->
+        state = %State{state | subscription: subscription}
 
-    {:ok, state}
+        {:ok, state}
+
+      {:error, reason} ->
+        {:stop, reason}
+    end
   end
 
   def subscribed?(subscriber), do: GenServer.call(subscriber, :subscribed?)
@@ -75,5 +74,14 @@ defmodule Commanded.EventStore.Subscriber do
     state = %State{state | received_events: received_events ++ events}
 
     {:noreply, state}
+  end
+
+  defp state(owner, opts) do
+    %State{
+      owner: owner,
+      concurrency: Keyword.get(opts, :concurrency, 1),
+      start_from: Keyword.get(opts, :start_from, :origin),
+      subscribe_to: Keyword.get(opts, :subscribe_to, :all)
+    }
   end
 end
