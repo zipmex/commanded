@@ -169,7 +169,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
         {:ok, _subscription} =
           EventStore.subscribe_to("stream1", "subscriber", self(), start_from: :origin)
 
-        assert {:error, :too_many_subscribers} ==
+        assert {:error, :already_subscribed} ==
                  EventStore.subscribe_to("stream1", "subscriber", self(), start_from: :origin)
       end
     end
@@ -238,7 +238,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
       test "should prevent duplicate subscriptions" do
         {:ok, _subscription} = subscribe_to_all()
 
-        assert {:error, :too_many_subscribers} == subscribe_to_all()
+        assert {:error, :already_subscribed} == subscribe_to_all()
       end
     end
 

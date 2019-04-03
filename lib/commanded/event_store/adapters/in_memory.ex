@@ -243,10 +243,16 @@ defmodule Commanded.EventStore.Adapters.InMemory do
         %PersistentSubscription{concurrency: concurrency} = subscription ->
           %PersistentSubscription{subscriptions: subscriptions} = subscription
 
-          if length(subscriptions) < concurrency do
-            persistent_subscription(subscription, subscriber, state)
+          subscribers = Enum.map(subscriptions, &Subscription.subscriber/1)
+
+          if Enum.member?(subscribers, subscriber) do
+            {{:error, :already_subscribed}, state}
           else
-            {{:error, :too_many_subscribers}, state}
+            if length(subscriptions) < concurrency do
+              persistent_subscription(subscription, subscriber, state)
+            else
+              {{:error, :too_many_subscribers}, state}
+            end
           end
       end
 
