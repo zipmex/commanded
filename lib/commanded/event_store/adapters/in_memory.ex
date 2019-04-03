@@ -240,7 +240,8 @@ defmodule Commanded.EventStore.Adapters.InMemory do
         nil ->
           persistent_subscription(subscription, subscriber, state)
 
-        %PersistentSubscription{concurrency: 1} ->
+        %PersistentSubscription{concurrency: 1, subscriptions: subscriptions}
+        when subscriptions != [] ->
           {{:error, :subscription_already_exists}, state}
 
         %PersistentSubscription{concurrency: concurrency} = subscription ->
@@ -588,6 +589,9 @@ defmodule Commanded.EventStore.Adapters.InMemory do
       publish_to_persistent_subscription(events, subscription)
     end
   end
+
+  defp publish_to_persistent_subscription(_events, %PersistentSubscription{subscriptions: []}),
+    do: :ok
 
   defp publish_to_persistent_subscription(events, %PersistentSubscription{} = subscription) do
     %PersistentSubscription{subscriptions: subscriptions} = subscription

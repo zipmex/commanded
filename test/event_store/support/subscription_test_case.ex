@@ -176,15 +176,13 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
     describe "subscribe to all streams" do
       test "should receive `:subscribed` message once subscribed" do
-        {:ok, subscription} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, subscription} = subscribe_to_all()
 
         assert_receive {:subscribed, ^subscription}
       end
 
       test "should receive events appended to any stream" do
-        {:ok, subscription} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, subscription} = subscribe_to_all()
 
         assert_receive {:subscribed, ^subscription}
 
@@ -205,8 +203,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
         wait_for_event_store()
 
-        {:ok, subscription} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, subscription} = subscribe_to_all()
 
         assert_receive {:subscribed, ^subscription}
 
@@ -239,18 +236,15 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
       end
 
       test "should prevent duplicate subscriptions" do
-        {:ok, _subscription} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, _subscription} = subscribe_to_all()
 
-        assert {:error, :subscription_already_exists} ==
-                 EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        assert {:error, :subscription_already_exists} == subscribe_to_all()
       end
     end
 
     describe "unsubscribe from all streams" do
       test "should not receive further events appended to any stream" do
-        {:ok, subscription} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, subscription} = subscribe_to_all()
 
         assert_receive {:subscribed, ^subscription}
 
@@ -267,8 +261,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
       end
 
       test "should resume subscription when subscribing again" do
-        {:ok, subscription1} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, subscription1} = subscribe_to_all()
 
         assert_receive {:subscribed, ^subscription1}
 
@@ -278,8 +271,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
         :ok = unsubscribe(subscription1)
 
-        {:ok, subscription2} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, subscription2} = subscribe_to_all()
 
         :ok = EventStore.append_to_stream("stream2", 0, build_events(2))
 
@@ -290,8 +282,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
     describe "delete subscription" do
       test "should be deleted" do
-        {:ok, subscription1} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, subscription1} = subscribe_to_all()
 
         assert_receive {:subscribed, ^subscription1}
 
@@ -305,8 +296,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
       end
 
       test "should create new subscription after deletion" do
-        {:ok, subscription1} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, subscription1} = subscribe_to_all()
 
         assert_receive {:subscribed, ^subscription1}
 
@@ -322,8 +312,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
         refute_receive {:events, _received_events}
 
-        {:ok, subscription2} =
-          EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
+        {:ok, subscription2} = subscribe_to_all()
 
         # Should receive all events as subscription has been recreated from `:origin`
         assert_receive {:subscribed, ^subscription2}
@@ -375,6 +364,7 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
         ProcessHelper.shutdown(subscription)
 
         refute Process.alive?(subscription)
+        assert Process.alive?(subscriber)
         refute_receive {:DOWN, ^ref, :process, ^subscriber, _reason}
       end
 
@@ -389,6 +379,10 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
         assert_receive {:DOWN, ^ref, :process, ^subscription, _reason}
       end
+    end
+
+    defp subscribe_to_all do
+      EventStore.subscribe_to(:all, "subscriber", self(), start_from: :origin)
     end
 
     defp unsubscribe(subscription) do
