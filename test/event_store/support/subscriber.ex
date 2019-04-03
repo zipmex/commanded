@@ -42,9 +42,19 @@ defmodule Commanded.EventStore.Subscriber do
     end
   end
 
+  def ack(subscriber, events), do: GenServer.call(subscriber, {:ack, events})
+
   def subscribed?(subscriber), do: GenServer.call(subscriber, :subscribed?)
 
   def received_events(subscriber), do: GenServer.call(subscriber, :received_events)
+
+  def handle_call({:ack, events}, _from, %State{} = state) do
+    %State{subscription: subscription} = state
+
+    :ok = EventStore.ack_event(subscription, List.last(events))
+
+    {:reply, :ok, state}
+  end
 
   def handle_call(:subscribed?, _from, %State{} = state) do
     %State{subscribed?: subscribed?} = state
@@ -67,9 +77,9 @@ defmodule Commanded.EventStore.Subscriber do
   end
 
   def handle_info({:events, events}, %State{} = state) do
-    %State{owner: owner, received_events: received_events, subscription: subscription} = state
+    %State{owner: owner, received_events: received_events} = state
 
-    send(owner, {:events, subscription, events})
+    send(owner, {:events, self(), events})
 
     state = %State{state | received_events: received_events ++ events}
 

@@ -3,7 +3,9 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
   define_tests do
     alias Commanded.EventStore
-    alias Commanded.EventStore.{EventData, Subscriber}
+    alias Commanded.EventStore.EventData
+    alias Commanded.EventStore.Subscriber
+    alias Commanded.EventStore.RecordedEvent
     alias Commanded.Helpers.ProcessHelper
 
     defmodule BankAccountOpened do
@@ -267,46 +269,61 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
       end
 
       test "should distribute events amongst subscribers" do
-        {:ok, _subscriber1} = Subscriber.start_link(self(), concurrency: 2)
-        {:ok, _subscriber2} = Subscriber.start_link(self(), concurrency: 2)
+        {:ok, _subscriber1} = Subscriber.start_link(self(), concurrency: 3)
+        {:ok, _subscriber2} = Subscriber.start_link(self(), concurrency: 3)
+        {:ok, _subscriber2} = Subscriber.start_link(self(), concurrency: 3)
 
-        assert_receive {:subscribed, subscription1}
-        assert_receive {:subscribed, subscription2}
+        assert_receive {:subscribed, _subscription1}
+        assert_receive {:subscribed, _subscription2}
+        assert_receive {:subscribed, _subscription3}
 
-        :ok = EventStore.append_to_stream("stream1", 0, build_events(4))
+        :ok = EventStore.append_to_stream("stream1", 0, build_events(6))
 
-        assert_receive_events(subscription1, expected_count: 1, from: 1)
-        assert_receive_events(subscription2, expected_count: 1, from: 2)
-        assert_receive_events(subscription1, expected_count: 1, from: 3)
-        assert_receive_events(subscription2, expected_count: 1, from: 4)
+        subscribers =
+          for n <- 1..6 do
+            assert_receive {:events, subscriber, [%RecordedEvent{event_number: ^n}] = events}
 
-        refute_receive {:events, _subscription, _received_events}
+            :ok = Subscriber.ack(subscriber, events)
+
+            subscriber
+          end
+          |> Enum.uniq()
+
+        refute_receive {:events, _subscriber, _received_events}
+
+        assert length(subscribers) == 3
       end
 
       test "should exclude stopped subscriber from receiving events" do
         {:ok, subscriber1} = Subscriber.start_link(self(), concurrency: 2)
         {:ok, subscriber2} = Subscriber.start_link(self(), concurrency: 2)
 
-        assert_receive {:subscribed, subscription1}
-        assert_receive {:subscribed, subscription2}
+        assert_receive {:subscribed, _subscription1}
+        assert_receive {:subscribed, _subscription2}
 
         :ok = EventStore.append_to_stream("stream1", 0, build_events(2))
 
-        assert_receive_events(subscription1, expected_count: 1, from: 1)
-        assert_receive_events(subscription2, expected_count: 1, from: 2)
+        for n <- 1..2 do
+          assert_receive {:events, subscriber, [%RecordedEvent{event_number: ^n}] = events}
+
+          :ok = Subscriber.ack(subscriber, events)
+        end
 
         stop_subscriber(subscriber1)
 
         :ok = EventStore.append_to_stream("stream2", 0, build_events(2))
 
-        assert_receive_events(subscription2, expected_count: 1, from: 3)
-        assert_receive_events(subscription2, expected_count: 1, from: 4)
+        for n <- 3..4 do
+          assert_receive {:events, ^subscriber2, [%RecordedEvent{event_number: ^n}] = events}
+
+          :ok = Subscriber.ack(subscriber2, events)
+        end
 
         stop_subscriber(subscriber2)
 
         :ok = EventStore.append_to_stream("stream3", 0, build_events(2))
 
-        refute_receive {:events, _subscription, _received_events}
+        refute_receive {:events, _subscriber, _received_events}
       end
     end
 
@@ -396,34 +413,70 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
         {:ok, subscriber} = Subscriber.start_link(self())
 
-        assert_receive {:subscribed, subscription}
-        assert_receive {:events, ^subscription, received_events}
-        assert length(received_events) == 1
-        assert Enum.map(received_events, & &1.stream_id) == ["stream1"]
+        assert_receive {:subscribed, _subscription}
 
-        :ok = EventStore.ack_event(subscription, List.last(received_events))
+        assert_receive {:events, ^subscriber,
+                        [%RecordedEvent{event_number: 1, stream_id: "stream1"}] = received_events}
 
-        assert_receive {:events, ^subscription, received_events}
-        assert length(received_events) == 1
-        assert Enum.map(received_events, & &1.stream_id) == ["stream2"]
+        :ok = Subscriber.ack(subscriber, received_events)
 
-        :ok = EventStore.ack_event(subscription, List.last(received_events))
+        assert_receive {:events, ^subscriber,
+                        [%RecordedEvent{event_number: 2, stream_id: "stream2"}] = received_events}
+
+        :ok = Subscriber.ack(subscriber, received_events)
 
         stop_subscriber(subscriber)
 
-        {:ok, _subscriber} = Subscriber.start_link(self())
+        {:ok, subscriber} = Subscriber.start_link(self())
 
-        assert_receive {:subscribed, subscription}
+        assert_receive {:subscribed, _subscription}
 
         :ok = EventStore.append_to_stream("stream3", 0, build_events(1))
 
-        assert_receive {:events, ^subscription, received_events}
-        assert length(received_events) == 1
-        assert Enum.map(received_events, & &1.stream_id) == ["stream3"]
+        assert_receive {:events, ^subscriber,
+                        [%RecordedEvent{event_number: 3, stream_id: "stream3"}] = received_events}
 
-        :ok = EventStore.ack_event(subscription, List.last(received_events))
+        :ok = Subscriber.ack(subscriber, received_events)
 
-        refute_receive {:events, _subscription, _received_events}
+        refute_receive {:events, _subscriber, _received_events}
+      end
+
+      test "should resume subscription from last successful ack" do
+        :ok = EventStore.append_to_stream("stream1", 0, build_events(1))
+        :ok = EventStore.append_to_stream("stream2", 0, build_events(1))
+
+        {:ok, subscriber} = Subscriber.start_link(self())
+
+        assert_receive {:subscribed, _subscription}
+
+        assert_receive {:events, ^subscriber,
+                        [%RecordedEvent{event_number: 1, stream_id: "stream1"}] = received_events}
+
+        :ok = Subscriber.ack(subscriber, received_events)
+
+        assert_receive {:events, ^subscriber,
+                        [%RecordedEvent{event_number: 2, stream_id: "stream2"}] = received_events}
+
+        stop_subscriber(subscriber)
+
+        {:ok, subscriber} = Subscriber.start_link(self())
+
+        assert_receive {:subscribed, _subscription}
+
+        # Receive event #2 again because it wasn't ack'd
+        assert_receive {:events, ^subscriber,
+                        [%RecordedEvent{event_number: 2, stream_id: "stream2"}] = received_events}
+
+        :ok = Subscriber.ack(subscriber, received_events)
+
+        :ok = EventStore.append_to_stream("stream3", 0, build_events(1))
+
+        assert_receive {:events, ^subscriber,
+                        [%RecordedEvent{event_number: 3, stream_id: "stream3"}] = received_events}
+
+        :ok = Subscriber.ack(subscriber, received_events)
+
+        refute_receive {:events, _subscriber, _received_events}
       end
     end
 
@@ -512,25 +565,13 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
     defp receive_transient_events(from_event_number) do
       assert_receive {:events, received_events}
-
       assert_received_events(received_events, from_event_number)
 
       received_events
     end
 
-    defp receive_persistent_events(
-           from_event_number,
-           subscription,
-           timeout \\ Application.fetch_env!(:ex_unit, :assert_receive_timeout)
-         ) do
-      received_events =
-        receive do
-          {:events, received_events} -> received_events
-          {:events, ^subscription, received_events} -> received_events
-        after
-          timeout -> flunk("No events received after #{timeout}ms.")
-        end
-
+    defp receive_persistent_events(from_event_number, subscription) do
+      assert_receive {:events, received_events}
       assert_received_events(received_events, from_event_number)
 
       :ok = EventStore.ack_event(subscription, List.last(received_events))
