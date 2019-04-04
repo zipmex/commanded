@@ -16,13 +16,6 @@ defmodule Commanded.EventStore.Adapters.InMemory.Subscription do
     {:ok, subscriber}
   end
 
-  def subscriber(subscription), do: GenServer.call(subscription, :subscriber)
-
-  @impl GenServer
-  def handle_call(:subscriber, _from, subscriber) do
-    {:reply, subscriber, subscriber}
-  end
-
   @impl GenServer
   def handle_info({:events, events}, subscriber) do
     send(subscriber, {:events, events})

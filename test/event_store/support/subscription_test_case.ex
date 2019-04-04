@@ -169,10 +169,10 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
       test "should prevent duplicate subscriptions" do
         {:ok, _subscription} =
-          EventStore.subscribe_to("stream1", "subscriber", self(), start_from: :origin)
+          EventStore.subscribe_to("stream1", "subscriber", start_process(), [])
 
-        assert {:error, :already_subscribed} ==
-                 EventStore.subscribe_to("stream1", "subscriber", self(), start_from: :origin)
+        assert {:error, :too_many_subscribers} ==
+                 EventStore.subscribe_to("stream1", "subscriber", start_process(), [])
       end
     end
 
@@ -238,9 +238,10 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
       end
 
       test "should prevent duplicate subscriptions" do
-        {:ok, _subscription} = subscribe_to_all()
+        {:ok, _subscription} = EventStore.subscribe_to(:all, "subscriber", start_process(), [])
 
-        assert {:error, :already_subscribed} == subscribe_to_all()
+        assert {:error, :too_many_subscribers} ==
+                 EventStore.subscribe_to(:all, "subscriber", start_process(), [])
       end
     end
 
@@ -599,6 +600,10 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
 
     defp build_events(count) do
       for account_number <- 1..count, do: build_event(account_number)
+    end
+
+    defp start_process do
+      spawn_link(fn -> :timer.sleep(:infinity) end)
     end
   end
 end
