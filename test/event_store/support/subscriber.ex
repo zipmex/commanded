@@ -6,11 +6,9 @@ defmodule Commanded.EventStore.Subscriber do
 
   defmodule State do
     defstruct [
-      :owner,
-      :concurrency,
-      :subscribe_to,
+      :recipient,
       :subscription,
-      :start_from,
+      opts: [],
       received_events: [],
       subscribed?: false
     ]
@@ -18,20 +16,18 @@ defmodule Commanded.EventStore.Subscriber do
 
   alias Subscriber.State
 
-  def start_link(owner, opts \\ []) when is_pid(owner) do
-    GenServer.start_link(__MODULE__, state(owner, opts))
+  def start_link(recipient, opts \\ []) when is_pid(recipient) do
+    GenServer.start_link(__MODULE__, %State{recipient: recipient, opts: opts})
   end
 
-  def start(owner, opts \\ []) when is_pid(owner) do
-    GenServer.start(__MODULE__, state(owner, opts))
+  def start(recipient, opts \\ []) when is_pid(recipient) do
+    GenServer.start(__MODULE__, %State{recipient: recipient, opts: opts})
   end
 
   def init(%State{} = state) do
-    %State{concurrency: concurrency, start_from: start_from, subscribe_to: subscribe_to} = state
+    %State{opts: opts} = state
 
-    opts = [start_from: start_from, concurrency: concurrency]
-
-    case EventStore.subscribe_to(subscribe_to, "subscriber", self(), opts) do
+    case EventStore.subscribe_to(:all, "subscriber", self(), opts) do
       {:ok, subscription} ->
         state = %State{state | subscription: subscription}
 
@@ -69,29 +65,20 @@ defmodule Commanded.EventStore.Subscriber do
   end
 
   def handle_info({:subscribed, subscription}, %State{subscription: subscription} = state) do
-    %State{owner: owner} = state
+    %State{recipient: recipient} = state
 
-    send(owner, {:subscribed, subscription})
+    send(recipient, {:subscribed, subscription})
 
     {:noreply, %State{state | subscribed?: true}}
   end
 
   def handle_info({:events, events}, %State{} = state) do
-    %State{owner: owner, received_events: received_events} = state
+    %State{recipient: recipient, received_events: received_events} = state
 
-    send(owner, {:events, self(), events})
+    send(recipient, {:events, self(), events})
 
     state = %State{state | received_events: received_events ++ events}
 
     {:noreply, state}
-  end
-
-  defp state(owner, opts) do
-    %State{
-      owner: owner,
-      concurrency: Keyword.get(opts, :concurrency, 1),
-      start_from: Keyword.get(opts, :start_from, :origin),
-      subscribe_to: Keyword.get(opts, :subscribe_to, :all)
-    }
   end
 end

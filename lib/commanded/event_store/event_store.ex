@@ -3,11 +3,16 @@ defmodule Commanded.EventStore do
   Defines the behaviour to be implemented by an event store adapter to be used by Commanded.
   """
 
-  alias Commanded.EventStore.{EventData, RecordedEvent, SnapshotData}
+  alias Commanded.EventStore.EventData
+  alias Commanded.EventStore.RecordedEvent
+  alias Commanded.EventStore.SnapshotData
 
   @type stream_uuid :: String.t()
   @type start_from :: :origin | :current | integer
-  @type subscription_option :: {:start_from, start_from} | {:concurrency, pos_integer}
+  @type subscription_option ::
+          {:start_from, start_from}
+          | {:concurrency, pos_integer}
+          | {:partition_by, (RecordedEvent.t() -> term)}
   @type subscription_options :: [subscription_option]
   @type expected_version :: :any_version | :no_stream | :stream_exists | non_neg_integer
   @type subscription_name :: String.t()

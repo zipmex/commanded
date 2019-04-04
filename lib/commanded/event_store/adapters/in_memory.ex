@@ -9,6 +9,7 @@ defmodule Commanded.EventStore.Adapters.InMemory do
 
   defmodule State do
     @moduledoc false
+
     defstruct [
       :serializer,
       persisted_events: [],
@@ -22,15 +23,41 @@ defmodule Commanded.EventStore.Adapters.InMemory do
 
   defmodule PersistentSubscription do
     @moduledoc false
+
+    alias Commanded.EventStore.RecordedEvent
+
     defstruct [
       :stream_uuid,
       :name,
       :ref,
       :start_from,
       :concurrency,
+      :partition_by,
       subscriptions: [],
       last_seen: 0
     ]
+
+    # Get the subscription to send the event to determined by the partition
+    # function, if provided, otherwise use a round-robin distribution strategy.
+    def subscription(%PersistentSubscription{} = subscription, %RecordedEvent{} = event) do
+      %PersistentSubscription{partition_by: partition_by, subscriptions: subscriptions} =
+        subscription
+
+      %RecordedEvent{event_number: event_number} = event
+
+      index =
+        case partition_by do
+          nil ->
+            rem(event_number, length(subscriptions))
+
+          partition_by when is_function(partition_by, 1) ->
+            partition_key = partition_by.(event)
+
+            :erlang.phash2(partition_key, length(subscriptions) - 1)
+        end
+
+      Enum.at(subscriptions, index)
+    end
   end
 
   alias Commanded.EventStore.Adapters.InMemory.State
@@ -82,7 +109,8 @@ defmodule Commanded.EventStore.Adapters.InMemory do
       stream_uuid: stream_uuid,
       name: subscription_name,
       start_from: Keyword.get(opts, :start_from, :origin),
-      concurrency: Keyword.get(opts, :concurrency, 1)
+      concurrency: Keyword.get(opts, :concurrency, 1),
+      partition_by: Keyword.get(opts, :partition_by)
     }
 
     GenServer.call(__MODULE__, {:subscribe_to, subscription, subscriber})
@@ -590,14 +618,10 @@ defmodule Commanded.EventStore.Adapters.InMemory do
     do: :ok
 
   defp publish_to_persistent_subscription(events, %PersistentSubscription{} = subscription) do
-    %PersistentSubscription{subscriptions: subscriptions} = subscription
+    for event <- events do
+      recipient = PersistentSubscription.subscription(subscription, event)
 
-    for batch <- Enum.chunk_every(events, length(subscriptions)) do
-      batch
-      |> Enum.zip(subscriptions)
-      |> Enum.each(fn {event, subscription} ->
-        send(subscription, {:events, [event]})
-      end)
+      send(recipient, {:events, [event]})
     end
 
     :ok

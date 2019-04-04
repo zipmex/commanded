@@ -295,6 +295,48 @@ defmodule Commanded.EventStore.SubscriptionTestCase do
         assert length(subscribers) == 3
       end
 
+      test "should distribute events to subscribers using optional partition by function" do
+        opts = [
+          concurrency: 3,
+          partition_by: fn %RecordedEvent{stream_id: stream_id} -> stream_id end
+        ]
+
+        {:ok, _subscriber1} = Subscriber.start_link(self(), opts)
+        {:ok, _subscriber2} = Subscriber.start_link(self(), opts)
+        {:ok, _subscriber2} = Subscriber.start_link(self(), opts)
+
+        assert_receive {:subscribed, _subscription1}
+        assert_receive {:subscribed, _subscription2}
+        assert_receive {:subscribed, _subscription3}
+
+        :ok = EventStore.append_to_stream("stream1", 0, build_events(1))
+        :ok = EventStore.append_to_stream("stream2", 0, build_events(1))
+        :ok = EventStore.append_to_stream("stream3", 0, build_events(1))
+
+        :ok = EventStore.append_to_stream("stream1", 1, build_events(1))
+        :ok = EventStore.append_to_stream("stream2", 1, build_events(1))
+        :ok = EventStore.append_to_stream("stream3", 1, build_events(1))
+
+        :ok = EventStore.append_to_stream("stream1", 2, build_events(1))
+        :ok = EventStore.append_to_stream("stream2", 2, build_events(1))
+        :ok = EventStore.append_to_stream("stream3", 2, build_events(1))
+
+        recipients =
+          for n <- 1..9 do
+            assert_receive {:events, subscriber,
+                            [%RecordedEvent{event_number: ^n, stream_id: stream_id}] = events}
+
+            :ok = Subscriber.ack(subscriber, events)
+
+            {subscriber, stream_id}
+          end
+          |> Enum.uniq()
+
+        refute_receive {:events, _subscriber, _received_events}
+
+        assert length(recipients) == 3
+      end
+
       test "should exclude stopped subscriber from receiving events" do
         {:ok, subscriber1} = Subscriber.start_link(self(), concurrency: 2)
         {:ok, subscriber2} = Subscriber.start_link(self(), concurrency: 2)
