@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.4.1
+
+### Enhancements
+
+- Retry command execution when the aggregate process is down ([#494](https://github.com/commanded/commanded/pull/494)).
+
+### Bug fixes
+
+-  Remove duplicate apply function call when receiving missed events published to an aggregate's event stream ([364c877](https://github.com/commanded/commanded/commit/364c877e8f30a18d90544676fb58b94132d50720)).
+- Fix typespec typo in Commanded.Application ([#503](https://github.com/commanded/commanded/pull/503)).
+
+## v1.4.0
+
+### Enhancements
+
+- Allow a process manager to stop after dispatching a command ([#460](https://github.com/commanded/commanded/pull/460)).
+- Replace `use Mix.Config` with `import Config` in config files ([#467](https://github.com/commanded/commanded/pull/467)).
+- Event handler concurrency ([#486](https://github.com/commanded/commanded/pull/486)).
+- Remove `elixir_uuid` dependency ([#493](https://github.com/commanded/commanded/pull/493)).
+- Support and test for OTP 25 ([#489](https://github.com/commanded/commanded/pull/489)).
+
+---
+
 ## v1.3.1
 
 ### Bug fixes
@@ -70,7 +93,7 @@
 - Remove router module compile-time checking ([#363](https://github.com/commanded/commanded/pull/363)).
 - Reduce memory consumption during aggregate state rebuild ([#368](https://github.com/commanded/commanded/pull/368)).
 - Upgrade to `phoenix_pubsub` to 2.0 ([#365](https://github.com/commanded/commanded/pull/365)).
-- Ignore `:not_found` error when reseting InMemory event store ([#354](https://github.com/commanded/commanded/pull/354)).
+- Ignore `:not_found` error when resetting InMemory event store ([#354](https://github.com/commanded/commanded/pull/354)).
 - Add `router/1` to `locals_without_parens` in Mix format config ([#351](https://github.com/commanded/commanded/pull/351)).
 - Include stacktrace in event handler and process manager `error` callback functions ([#342](https://github.com/commanded/commanded/pull/342)).
 - Call event handler's `error/3` callback function when `handle/2` function returns an invalid value ([#372](https://github.com/commanded/commanded/pull/372)).
@@ -245,7 +268,7 @@ Using the Elixir [EventStore](https://github.com/commanded/eventstore):
 - `eventstore` to [v0.16.0](https://hex.pm/packages/eventstore)
 - `commanded_eventstore_adapter` to [v0.5.0](https://hex.pm/packages/commanded_eventstore_adapter)
 
-Using Greg Young's [Event Store](https://eventstore.org/):
+Using [EventStoreDB](https://www.eventstore.com/):
 
 - `commanded_extreme_adapter` to [v0.6.0](https://hex.pm/packages/commanded_extreme_adapter)
 
@@ -338,7 +361,7 @@ Using the Elixir [EventStore](https://github.com/commanded/eventstore):
 - `eventstore` to [v0.14.0](https://hex.pm/packages/eventstore)
 - `commanded_eventstore_adapter` to [v0.4.0](https://hex.pm/packages/commanded_eventstore_adapter)
 
-Using Greg Young's [Event Store](https://eventstore.org/):
+Using [EventStoreDB](https://www.eventstore.com/):
 
 - `commanded_extreme_adapter` to [v0.5.0](https://hex.pm/packages/commanded_extreme_adapter)
 
@@ -374,7 +397,7 @@ Using the Elixir [EventStore](https://github.com/commanded/eventstore):
 - `eventstore` to [v0.13.0](https://hex.pm/packages/eventstore)
 - `commanded_eventstore_adapter` to [v0.3.0](https://hex.pm/packages/commanded_eventstore_adapter)
 
-Using Greg's [Event Store](https://eventstore.org/):
+Using [EventStoreDB](https://www.eventstore.com/):
 
 - `commanded_extreme_adapter` to [v0.4.0](https://hex.pm/packages/commanded_extreme_adapter)
 
@@ -398,7 +421,7 @@ Using the Elixir [EventStore](https://github.com/commanded/eventstore):
 - `eventstore` to [v0.11.0](https://hex.pm/packages/eventstore)
 - `commanded_eventstore_adapter` to [v0.2.0](https://hex.pm/packages/commanded_eventstore_adapter)
 
-Using Greg's [Event Store](https://eventstore.org/):
+Using [EventStoreDB](https://www.eventstore.com/):
 
 - `commanded_extreme_adapter` to [v0.3.0](https://hex.pm/packages/commanded_extreme_adapter)
 

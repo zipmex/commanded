@@ -99,10 +99,11 @@ defmodule Commanded.Aggregates.Aggregate do
 
   require Logger
 
-  alias Commanded.Application.Config
+  alias Commanded.Aggregate.Multi
   alias Commanded.Aggregates.Aggregate
   alias Commanded.Aggregates.AggregateStateBuilder
   alias Commanded.Aggregates.ExecutionContext
+  alias Commanded.Application.Config
   alias Commanded.Event.Mapper
   alias Commanded.Event.Upcast
   alias Commanded.EventStore
@@ -110,6 +111,10 @@ defmodule Commanded.Aggregates.Aggregate do
   alias Commanded.Registration
   alias Commanded.Snapshotting
   alias Commanded.Telemetry
+
+  @type state :: struct()
+
+  @type uuid :: String.t()
 
   defstruct [
     :application,
@@ -188,6 +193,9 @@ defmodule Commanded.Aggregates.Aggregate do
     try do
       GenServer.call(name, {:execute_command, context}, timeout)
     catch
+      :exit, {:noproc, {GenServer, :call, [^name, {:execute_command, ^context}, ^timeout]}} ->
+        {:exit, {:normal, :aggregate_stopped}}
+
       :exit, {:normal, {GenServer, :call, [^name, {:execute_command, ^context}, ^timeout]}} ->
         {:exit, {:normal, :aggregate_stopped}}
     end
@@ -216,7 +224,7 @@ defmodule Commanded.Aggregates.Aggregate do
               aggregate_uuid: aggregate_uuid,
               snapshotting: Snapshotting.new(application, aggregate_uuid, snapshot_options)
             }
-            |> Commanded.Aggregates.AggregateStateBuilder.populate()
+            |> AggregateStateBuilder.populate()
             |> Map.fetch!(:aggregate_state)
           end)
 
@@ -259,9 +267,11 @@ defmodule Commanded.Aggregates.Aggregate do
   @doc false
   @impl GenServer
   def handle_continue(:populate_aggregate_state, %Aggregate{} = state) do
+    state = AggregateStateBuilder.populate(state)
+
     # Subscribe to aggregate's events to catch any events appended to its stream
     # by another process, such as directly appended to the event store.
-    {:noreply, AggregateStateBuilder.populate(state), {:continue, :subscribe_to_events}}
+    {:noreply, state, {:continue, :subscribe_to_events}}
   end
 
   @doc false
@@ -276,34 +286,11 @@ defmodule Commanded.Aggregates.Aggregate do
 
   @doc false
   @impl GenServer
-  def handle_cast(:take_snapshot, %Aggregate{} = state) do
-    %Aggregate{
-      aggregate_state: aggregate_state,
-      aggregate_version: aggregate_version,
-      lifespan_timeout: lifespan_timeout,
-      snapshotting: snapshotting
-    } = state
+  def handle_cast(:take_snapshot, %Aggregate{} = state), do: do_take_snapshot(state)
 
-    Logger.debug(fn -> describe(state) <> " recording snapshot" end)
-
-    state =
-      case Snapshotting.take_snapshot(snapshotting, aggregate_version, aggregate_state) do
-        {:ok, snapshotting} ->
-          %Aggregate{state | snapshotting: snapshotting}
-
-        {:error, error} ->
-          Logger.warn(fn -> describe(state) <> " snapshot failed due to: " <> inspect(error) end)
-
-          state
-      end
-
-    case lifespan_timeout do
-      {:stop, reason} ->
-        {:stop, reason, state}
-
-      lifespan_timeout ->
-        {:noreply, state, lifespan_timeout}
-    end
+  @impl GenServer
+  def handle_cast({:take_snapshot, lifespan_timeout}, %Aggregate{} = state) do
+    do_take_snapshot(%Aggregate{state | lifespan_timeout: lifespan_timeout})
   end
 
   @doc false
@@ -333,16 +320,16 @@ defmodule Commanded.Aggregates.Aggregate do
 
     formatted_reply = ExecutionContext.format_reply(result, context, state)
 
-    state = %Aggregate{state | lifespan_timeout: lifespan_timeout}
-
     %Aggregate{aggregate_version: aggregate_version, snapshotting: snapshotting} = state
 
     response =
       if Snapshotting.snapshot_required?(snapshotting, aggregate_version) do
-        :ok = GenServer.cast(self(), :take_snapshot)
+        :ok = GenServer.cast(self(), {:take_snapshot, lifespan_timeout})
 
         {:reply, formatted_reply, state}
       else
+        state = %Aggregate{state | lifespan_timeout: lifespan_timeout}
+
         case lifespan_timeout do
           {:stop, reason} -> {:stop, reason, formatted_reply, state}
           lifespan_timeout -> {:reply, formatted_reply, state, lifespan_timeout}
@@ -376,20 +363,22 @@ defmodule Commanded.Aggregates.Aggregate do
   def handle_info({:events, events}, %Aggregate{} = state) do
     %Aggregate{application: application, lifespan_timeout: lifespan_timeout} = state
 
-    Logger.debug(fn -> describe(state) <> " received events: #{inspect(events)}" end)
+    Logger.debug(describe(state) <> " received events: " <> inspect(events))
 
     try do
       state =
         events
+        |> Enum.reject(&event_already_seen?(&1, state))
         |> Upcast.upcast_event_stream(additional_metadata: %{application: application})
         |> Enum.reduce(state, &handle_event/2)
 
-      state = Enum.reduce(events, state, &handle_event/2)
-
-      {:noreply, state, lifespan_timeout}
+      case lifespan_timeout do
+        {:stop, reason} -> {:stop, reason, state}
+        lifespan_timeout -> {:noreply, state, lifespan_timeout}
+      end
     catch
       {:error, error} ->
-        Logger.debug(fn -> describe(state) <> " stopping due to: #{inspect(error)}" end)
+        Logger.debug(describe(state) <> " stopping due to: " <> inspect(error))
 
         # Stop after event handling returned an error
         {:stop, error, state}
@@ -399,9 +388,16 @@ defmodule Commanded.Aggregates.Aggregate do
   @doc false
   @impl GenServer
   def handle_info(:timeout, %Aggregate{} = state) do
-    Logger.debug(fn -> describe(state) <> " stopping due to inactivity timeout" end)
+    Logger.debug(describe(state) <> " stopping due to inactivity timeout")
 
     {:stop, :normal, state}
+  end
+
+  defp event_already_seen?(%RecordedEvent{} = event, %Aggregate{} = state) do
+    %RecordedEvent{event_number: event_number} = event
+    %Aggregate{aggregate_version: aggregate_version} = state
+
+    event_number <= aggregate_version
   end
 
   # Handle events appended to the aggregate's stream, received by its
@@ -415,28 +411,18 @@ defmodule Commanded.Aggregates.Aggregate do
       aggregate_version: aggregate_version
     } = state
 
-    expected_version = aggregate_version + 1
-
-    case event_number do
-      ^expected_version ->
-        # apply event to aggregate's state
-        %Aggregate{
-          state
-          | aggregate_version: event_number,
-            aggregate_state: aggregate_module.apply(aggregate_state, data)
-        }
-
-      already_seen_version when already_seen_version <= aggregate_version ->
-        # ignore events already applied to aggregate state
+    if event_number == aggregate_version + 1 do
+      # Apply event to aggregate's state
+      %Aggregate{
         state
+        | aggregate_version: event_number,
+          aggregate_state: aggregate_module.apply(aggregate_state, data)
+      }
+    else
+      Logger.debug(describe(state) <> " received an unexpected event: " <> inspect(event))
 
-      _unexpected_version ->
-        Logger.debug(fn ->
-          describe(state) <> " received an unexpected event: #{inspect(event)}"
-        end)
-
-        # throw an error when an unexpected event is received
-        throw({:error, :unexpected_event_received})
+      # Throw an error when an unexpected event is received
+      throw({:error, :unexpected_event_received})
     end
   end
 
@@ -458,12 +444,12 @@ defmodule Commanded.Aggregates.Aggregate do
         timeout
 
       invalid ->
-        Logger.warn(fn ->
+        Logger.warn(
           "Invalid timeout for aggregate lifespan " <>
             inspect(lifespan) <>
             ", expected a non-negative integer, `:infinity`, `:hibernate`, `:stop`, or `{:stop, reason}` but got: " <>
             inspect(invalid)
-        end)
+        )
 
         :infinity
     end
@@ -481,7 +467,7 @@ defmodule Commanded.Aggregates.Aggregate do
     %ExecutionContext{command: command, handler: handler, function: function} = context
     %Aggregate{aggregate_state: aggregate_state} = state
 
-    Logger.debug(fn -> describe(state) <> " executing command: " <> inspect(command) end)
+    Logger.debug(describe(state) <> " executing command: " <> inspect(command))
 
     with :ok <- before_execute_command(aggregate_state, context) do
       case Kernel.apply(handler, function, [aggregate_state, command]) do
@@ -491,8 +477,8 @@ defmodule Commanded.Aggregates.Aggregate do
         none when none in [:ok, nil, []] ->
           {{:ok, []}, state}
 
-        %Commanded.Aggregate.Multi{} = multi ->
-          case Commanded.Aggregate.Multi.run(multi) do
+        %Multi{} = multi ->
+          case Multi.run(multi) do
             {:error, _error} = reply ->
               {reply, state}
 
@@ -552,14 +538,12 @@ defmodule Commanded.Aggregates.Aggregate do
         # Retry command if there are any attempts left
         case ExecutionContext.retry(context) do
           {:ok, context} ->
-            Logger.debug(fn -> describe(state) <> " wrong expected version, retrying command" end)
+            Logger.debug(describe(state) <> " wrong expected version, retrying command")
 
             execute_command(context, state)
 
           reply ->
-            Logger.debug(fn ->
-              describe(state) <> " wrong expected version, but not retrying command"
-            end)
+            Logger.debug(describe(state) <> " wrong expected version, but not retrying command")
 
             {reply, state}
         end
@@ -592,6 +576,33 @@ defmodule Commanded.Aggregates.Aggregate do
       )
 
     EventStore.append_to_stream(application, aggregate_uuid, expected_version, event_data)
+  end
+
+  defp do_take_snapshot(%Aggregate{} = state) do
+    %Aggregate{
+      aggregate_state: aggregate_state,
+      aggregate_version: aggregate_version,
+      lifespan_timeout: lifespan_timeout,
+      snapshotting: snapshotting
+    } = state
+
+    Logger.debug(describe(state) <> " recording snapshot")
+
+    state =
+      case Snapshotting.take_snapshot(snapshotting, aggregate_version, aggregate_state) do
+        {:ok, snapshotting} ->
+          %Aggregate{state | snapshotting: snapshotting}
+
+        {:error, error} ->
+          Logger.warn(describe(state) <> " snapshot failed due to: " <> inspect(error))
+
+          state
+      end
+
+    case lifespan_timeout do
+      {:stop, reason} -> {:stop, reason, state}
+      lifespan_timeout -> {:noreply, state, lifespan_timeout}
+    end
   end
 
   defp telemetry_start(telemetry_metadata) do

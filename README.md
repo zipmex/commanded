@@ -13,13 +13,13 @@ Commanded provides a solid technical foundation for you to build on. It allows y
 
 You can use Commanded with one of the following event stores for persistence:
 
-- [EventStore](https://github.com/commanded/eventstore) Elixir library using PostgreSQL for persistence
-- Greg Young's [Event Store](https://eventstore.org/).
-- [In-memory event store](https://github.com/commanded/commanded/wiki/In-memory-event-store) included for test use only.
+- [EventStore](https://github.com/commanded/eventstore) - Elixir library using Postgres for persistence.
+- [EventStoreDB](https://www.eventstore.com/) - a stream database built for Event Sourcing.
+- [In-memory event store](https://github.com/commanded/commanded/wiki/In-memory-event-store) - included for test use only.
 
 Please refer to the [CHANGELOG](CHANGELOG.md) for features, bug fixes, and any upgrade advice included for each release.
 
-Requires Erlang/OTP v21.0 and Elixir v1.6 or later.
+Requires Erlang/OTP v21.0 and Elixir v1.9 or later.
 
 ---
 
@@ -27,8 +27,12 @@ Requires Erlang/OTP v21.0 and Elixir v1.6 or later.
 
 You can help support Commanded by helping to fund its ongoing development, new features, and releases.
 
-- [Become a GitHub sponsor](https://github.com/sponsors/slashdotdash).
+- [Become a GitHub sponsor](https://github.com/sponsors/slashdotdash)
 - [View sponsors & backers](BACKERS.md)
+
+#### Sponsors
+
+[![Alembic](https://user-images.githubusercontent.com/3167/177830256-26a74e82-60ff-4c20-bd84-64ee7c12512c.svg "Alembic")](https://alembic.com.au/)
 
 ---
 
@@ -130,6 +134,7 @@ Commanded exists thanks to the following people who have contributed.
 <a href="https://github.com/commanded/commanded/graphs/contributors"><img src="https://opencollective.com/commanded/contributors.svg?width=890&button=false" width="890" /></a>
 
 - [Adil Yarulin](https://github.com/ayarulin)
+- [Alexandre de Souza](https://github.com/aleDsz)
 - [Andrey Akulov](https://github.com/astery)
 - [Andrzej Sliwa](https://github.com/andrzejsliwa)
 - [Ben Smith](https://github.com/slashdotdash)
@@ -142,6 +147,7 @@ Commanded exists thanks to the following people who have contributed.
 - [Danilo Silva](https://github.com/silvadanilo)
 - [Dave Lucia](https://github.com/davydog187)
 - [David Carlin](https://github.com/davich)
+- [Damir Vandic](https://github.com/dvic)
 - [Danni Friedland](https://github.com/BlueHotDog)
 - [Ernesto](https://github.com/lex-mala)
 - [Fernando Mendes](https://github.com/justmendes)
@@ -152,11 +158,13 @@ Commanded exists thanks to the following people who have contributed.
 - [João Thallis](https://github.com/joaothallis)
 - [John Wilger](https://github.com/jwilger)
 - [Joseph Lozano](https://github.com/joseph-lozano)
+- [Kian-Meng Ang](https://github.com/kianmeng)
 - [Kok J Sam](https://github.com/sammkj)
 - [Leif Gensert](https://github.com/leifg)
 - [Luís Ferreira](https://github.com/zamith)
 - [Marcelo Dominguez](https://github.com/marpo60)
 - [Matt Doughty](https://github.com/m-doughty)
+- [Matthew Boehlig](https://github.com/thetamind)
 - [Michael Herold](https://github.com/michaelherold)
 - [Miguel Palhas](https://github.com/naps62)
 - [Nigel Thorne](https://github.com/nigelthorne)
@@ -168,6 +176,7 @@ Commanded exists thanks to the following people who have contributed.
 - [Štefan Ľupták](https://github.com/EskiMag)
 - [Tobiasz Małecki](https://github.com/amatalai)
 - [Willy Wombat](https://github.com/octowombat)
+- [Yordis Prieto](https://github.com/yordis)
 - [Yuri de Figueiredo](https://github.com/y86)
 - [Zven](https://github.com/zven21)
 

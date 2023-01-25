@@ -1,8 +1,9 @@
 defmodule Commanded.ProcessManagers.ProcessManagerInstanceExceptionTest do
   use ExUnit.Case
 
-  alias Commanded.ProcessManagers.{ExampleApp, ExampleRouter, ExampleProcessManager}
+  alias Commanded.ProcessManagers.{ExampleApp, ExampleProcessManager, ExampleRouter}
   alias Commanded.ProcessManagers.ExampleAggregate.Commands.{Error, Raise, Start}
+  alias Commanded.UUID
 
   setup do
     start_supervised!(ExampleApp)

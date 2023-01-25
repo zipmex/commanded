@@ -3,16 +3,14 @@ defmodule Commanded.ProcessManagers.ProcessManagerIntegrationTest do
 
   import Commanded.Assertions.EventAssertions
 
-  alias Commanded.ExampleDomain.BankApp
-  alias Commanded.ExampleDomain.BankRouter
-  alias Commanded.ExampleDomain.TransferMoneyProcessManager
   alias Commanded.ExampleDomain.BankAccount.Commands.OpenAccount
-  alias Commanded.ExampleDomain.BankAccount.Events.MoneyDeposited
-  alias Commanded.ExampleDomain.BankAccount.Events.MoneyWithdrawn
+  alias Commanded.ExampleDomain.BankAccount.Events.{MoneyDeposited, MoneyWithdrawn}
+  alias Commanded.ExampleDomain.{BankApp, BankRouter, TransferMoneyProcessManager}
   alias Commanded.ExampleDomain.MoneyTransfer.Commands.TransferMoney
   alias Commanded.ExampleDomain.MoneyTransfer.Events.MoneyTransferRequested
   alias Commanded.Helpers.CommandAuditMiddleware
   alias Commanded.ProcessManagers.ProcessRouter
+  alias Commanded.UUID
 
   setup do
     start_supervised!(CommandAuditMiddleware)

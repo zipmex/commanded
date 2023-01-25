@@ -5,6 +5,7 @@ defmodule Commanded.EventStore.AppendEventsTestCase do
     import Commanded.Enumerable, only: [pluck: 2]
 
     alias Commanded.EventStore.EventData
+    alias Commanded.UUID
 
     defmodule BankAccountOpened do
       @derive Jason.Encoder
@@ -68,7 +69,7 @@ defmodule Commanded.EventStore.AppendEventsTestCase do
                  )
       end
 
-      test "should fail when stream aleady exists with `:no_stream` parameter", %{
+      test "should fail when stream already exists with `:no_stream` parameter", %{
         event_store: event_store,
         event_store_meta: event_store_meta
       } do
@@ -114,7 +115,7 @@ defmodule Commanded.EventStore.AppendEventsTestCase do
         event_store: event_store,
         event_store_meta: event_store_meta
       } do
-        assert {:error, :stream_does_not_exist} ==
+        assert {:error, :stream_not_found} ==
                  event_store.append_to_stream(
                    event_store_meta,
                    "stream",

@@ -4,13 +4,14 @@ defmodule Commanded.Aggregates.AggregateConcurrencyTest do
   alias Commanded.MockedApp
   alias Commanded.Aggregates.{Aggregate, ExecutionContext}
   alias Commanded.EventStore.RecordedEvent
-  alias Commanded.ExampleDomain.{BankAccount, OpenAccountHandler, DepositMoneyHandler}
-  alias Commanded.ExampleDomain.BankAccount.Commands.{OpenAccount, DepositMoney}
+  alias Commanded.ExampleDomain.{BankAccount, DepositMoneyHandler, OpenAccountHandler}
+  alias Commanded.ExampleDomain.BankAccount.Commands.{DepositMoney, OpenAccount}
   alias Commanded.ExampleDomain.BankAccount.Events.MoneyDeposited
+  alias Commanded.UUID
 
   setup do
     expect(MockEventStore, :subscribe_to, fn
-      _event_store_meta, stream_uuid, handler_name, handler, _subscribe_from, [] ->
+      _event_store_meta, stream_uuid, handler_name, handler, _subscribe_from, _opts ->
         assert is_binary(stream_uuid)
         assert is_binary(handler_name)
 

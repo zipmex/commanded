@@ -12,18 +12,21 @@ defmodule Commanded do
 
   Use Commanded with one of the following event stores for persistence:
 
-  - Elixir [EventStore](https://hex.pm/packages/eventstore) using PostgreSQL for persistence
-  - [EventStore.org](https://eventstore.org/)
+  - Elixir [EventStore](https://hex.pm/packages/eventstore) using Postgres for persistence
+  - [EventStoreDB](https://www.eventstore.com/)
 
   Please check the [Getting Started](getting-started.html) and [Usage](usage.html) guides to learn more.
   """
 
   use Application
 
+  alias Commanded.Aggregates.Aggregate
+  alias Commanded.Application.Config
+
   @doc false
   def start(_type, _args) do
     children = [
-      Commanded.Application.Config
+      Config
     ]
 
     opts = [strategy: :one_for_one, name: Commanded.Supervisor]
@@ -37,8 +40,14 @@ defmodule Commanded do
   or querying the event store for an optional state snapshot
   and then replaying the aggregate's event stream.
   """
+  @spec aggregate_state(
+          application :: Commanded.Application.t(),
+          aggregate_module :: module(),
+          aggregate_uuid :: Aggregate.uuid(),
+          timeout :: integer
+        ) :: Aggregate.state()
   def aggregate_state(application, aggregate_module, aggregate_uuid, timeout \\ 5_000) do
-    Commanded.Aggregates.Aggregate.aggregate_state(
+    Aggregate.aggregate_state(
       application,
       aggregate_module,
       aggregate_uuid,

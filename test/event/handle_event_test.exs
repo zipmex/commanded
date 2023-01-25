@@ -1,13 +1,14 @@
 defmodule Commanded.Event.HandleEventTest do
-  use ExUnit.Case
+  use Commanded.MockEventStoreCase
 
   import Commanded.Enumerable, only: [pluck: 2]
   import Commanded.Assertions.EventAssertions
 
-  alias Commanded.DefaultApp
+  alias Commanded.{DefaultApp, MockedApp}
   alias Commanded.Event.AppendingEventHandler
   alias Commanded.Event.EchoHandler
   alias Commanded.Event.Handler
+  alias Commanded.Event.Mapper
   alias Commanded.Event.ReplyEvent
   alias Commanded.Event.UninterestingEvent
   alias Commanded.EventStore
@@ -16,18 +17,19 @@ defmodule Commanded.Event.HandleEventTest do
   alias Commanded.ExampleDomain.BankAccount.Events.MoneyDeposited
   alias Commanded.Helpers.EventFactory
   alias Commanded.Helpers.Wait
+  alias Commanded.UUID
 
   describe "event handling" do
     setup do
-      start_supervised!(DefaultApp)
+      # start_supervised!(DefaultApp)
       handler = start_supervised!(EchoHandler)
 
       [handler: handler]
     end
 
     test "should handle received events", %{handler: handler} do
-      event1 = %ReplyEvent{reply_to: self(), value: 1}
-      event2 = %ReplyEvent{reply_to: self(), value: 2}
+      event1 = %ReplyEvent{reply_to: reply_to(), value: 1}
+      event2 = %ReplyEvent{reply_to: reply_to(), value: 2}
       events = [event1, event2]
 
       metadata = %{"key" => "value"}
@@ -40,7 +42,7 @@ defmodule Commanded.Event.HandleEventTest do
 
       assert_enriched_metadata(metadata1, Enum.at(recorded_events, 0),
         additional_metadata: %{
-          application: DefaultApp,
+          application: MockedApp,
           state: nil,
           handler_name: "Commanded.Event.EchoHandler"
         }
@@ -50,7 +52,7 @@ defmodule Commanded.Event.HandleEventTest do
 
       assert_enriched_metadata(metadata2, Enum.at(recorded_events, 1),
         additional_metadata: %{
-          application: DefaultApp,
+          application: MockedApp,
           state: nil,
           handler_name: "Commanded.Event.EchoHandler"
         }
@@ -60,8 +62,8 @@ defmodule Commanded.Event.HandleEventTest do
     end
 
     test "should ignore uninterested events", %{handler: handler} do
-      interested_event1 = %ReplyEvent{reply_to: self(), value: 1}
-      interested_event2 = %ReplyEvent{reply_to: self(), value: 2}
+      interested_event1 = %ReplyEvent{reply_to: reply_to(), value: 1}
+      interested_event2 = %ReplyEvent{reply_to: reply_to(), value: 2}
 
       # Include uninterested events within those the handler is interested in
       events = [
@@ -101,8 +103,8 @@ defmodule Commanded.Event.HandleEventTest do
 
   describe "dynamic event handler" do
     setup do
-      start_supervised!({DefaultApp, name: :app1})
-      start_supervised!({DefaultApp, name: :app2})
+      start_supervised!({MockedApp, name: :app1})
+      start_supervised!({MockedApp, name: :app2})
 
       handler1 = start_supervised!({EchoHandler, application: :app1, name: "handler1"})
       handler2 = start_supervised!({EchoHandler, application: :app2, name: "handler2"})
@@ -111,8 +113,8 @@ defmodule Commanded.Event.HandleEventTest do
     end
 
     test "should handle received events", %{handler1: handler1, handler2: handler2} do
-      event1 = %ReplyEvent{reply_to: self(), value: 1}
-      event2 = %ReplyEvent{reply_to: self(), value: 2}
+      event1 = %ReplyEvent{reply_to: reply_to(), value: 1}
+      event2 = %ReplyEvent{reply_to: reply_to(), value: 2}
 
       metadata = %{"key" => "value"}
 
@@ -220,7 +222,7 @@ defmodule Commanded.Event.HandleEventTest do
     end
 
     test "should ignore already seen events" do
-      handler = start_supervised!(AppendingEventHandler)
+      handler = start_supervised!({AppendingEventHandler, application: MockedApp})
 
       events = [
         %BankAccountOpened{account_number: "ACC123", initial_balance: 1_000},
@@ -252,8 +254,10 @@ defmodule Commanded.Event.HandleEventTest do
     assert metadata == enriched_metadata
   end
 
+  defp reply_to, do: :erlang.pid_to_list(self())
+
   defp to_event_data(events) do
-    Commanded.Event.Mapper.map_to_event_data(events,
+    Mapper.map_to_event_data(events,
       causation_id: UUID.uuid4(),
       correlation_id: UUID.uuid4(),
       metadata: %{}

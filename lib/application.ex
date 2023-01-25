@@ -1,6 +1,9 @@
 defmodule Commanded.Application do
   use TelemetryRegistry
 
+  alias Commanded.Aggregates.Aggregate
+  alias Commanded.Application.Config
+
   telemetry_event(%{
     event: [:commanded, :application, :dispatch, :start],
     description: "Emitted when an application starts dispatching a command",
@@ -111,8 +114,8 @@ defmodule Commanded.Application do
   own separately configured and isolated event store. Each application must be
   started with a unique name.
 
-  Multipe instances of the same event handler or process manager can be
-  started by refering to a started application by its name. The event store
+  Multiple instances of the same event handler or process manager can be
+  started by referring to a started application by its name. The event store
   operations can also be scoped to an application by referring to its name.
 
   ### Example
@@ -162,6 +165,7 @@ defmodule Commanded.Application do
   """
 
   @type t :: module
+  @type options :: [name: nil | atom]
 
   @doc false
   defmacro __using__(opts) do
@@ -184,6 +188,7 @@ defmodule Commanded.Application do
         config
       end
 
+      @spec child_spec(opts :: Commanded.Application.options()) :: Supervisor.child_spec()
       def child_spec(opts) do
         %{
           id: name(opts),
@@ -202,8 +207,20 @@ defmodule Commanded.Application do
         Supervisor.stop(pid, :normal, timeout)
       end
 
+      @doc """
+      Retrieve aggregate state of an aggregate.
+
+      Retrieving aggregate state is done by calling to the opened aggregate,
+      or querying the event store for an optional state snapshot
+      and then replaying the aggregate's event stream.
+      """
+      @spec aggregate_state(
+              aggregate_module :: module(),
+              aggregate_uuid :: Aggregate.uuid(),
+              timeout :: integer
+            ) :: Aggregate.state()
       def aggregate_state(aggregate_module, aggregate_uuid, timeout \\ 5000) do
-        Commanded.Aggregates.Aggregate.aggregate_state(
+        Aggregate.aggregate_state(
           __MODULE__,
           aggregate_module,
           aggregate_uuid,
@@ -248,11 +265,11 @@ defmodule Commanded.Application do
   @doc """
   Starts the application supervisor.
 
-  Returns `{:ok, pid}` on sucess, `{:error, {:already_started, pid}}` if the
+  Returns `{:ok, pid}` on success, `{:error, {:already_started, pid}}` if the
   application is already started, or `{:error, term}` in case anything else goes
   wrong.
   """
-  @callback start_link(opts :: Keyword.t()) ::
+  @callback start_link(opts :: options) ::
               {:ok, pid}
               | {:error, {:already_started, pid}}
               | {:error, term}
@@ -267,16 +284,9 @@ defmodule Commanded.Application do
 
     - `command` is a command struct which must be registered with a
       `Commanded.Commands.Router` and included in the application.
-      
+
   """
-  @callback dispatch(command :: struct()) ::
-              :ok
-              | {:ok, aggregate_state :: struct()}
-              | {:ok, aggregate_version :: non_neg_integer()}
-              | {:ok, execution_result :: Commanded.Commands.ExecutionResult.t()}
-              | {:error, :unregistered_command}
-              | {:error, :consistency_timeout}
-              | {:error, reason :: term()}
+  @callback dispatch(command :: struct()) :: Commanded.Commands.Router.dispatch_resp()
 
   @doc """
   Dispatch a registered command.
@@ -347,16 +357,7 @@ defmodule Commanded.Application do
   @callback dispatch(
               command :: struct(),
               timeout_or_opts :: non_neg_integer() | :infinity | Keyword.t()
-            ) ::
-              :ok
-              | {:ok, aggregate_state :: struct()}
-              | {:ok, aggregate_version :: non_neg_integer()}
-              | {:ok, execution_result :: Commanded.Commands.ExecutionResult.t()}
-              | {:error, :unregistered_command}
-              | {:error, :consistency_timeout}
-              | {:error, reason :: term()}
-
-  alias Commanded.Application.Config
+            ) :: Commanded.Commands.Router.dispatch_resp()
 
   @doc false
   def dispatch(application, command, opts \\ [])

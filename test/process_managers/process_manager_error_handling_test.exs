@@ -6,17 +6,17 @@ defmodule Commanded.ProcessManager.ProcessManagerErrorHandlingTest do
   alias Commanded.ProcessManagers.ErrorAggregate.Commands.StartProcess
 
   alias Commanded.ProcessManagers.ErrorAggregate.Events.{
-    ProcessError,
-    ProcessException,
     ProcessApplyException,
-    ProcessDispatchException
+    ProcessDispatchException,
+    ProcessError,
+    ProcessException
   }
 
   alias Commanded.ProcessManagers.ErrorApp
   alias Commanded.ProcessManagers.ErrorHandlingProcessManager
   alias Commanded.ProcessManagers.ErrorRouter
-
   alias Commanded.ProcessManagers.FailureContext
+  alias Commanded.UUID
 
   setup do
     start_supervised!(ErrorApp)

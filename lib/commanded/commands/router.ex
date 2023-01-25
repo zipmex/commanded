@@ -95,10 +95,10 @@ defmodule Commanded.Commands.Router do
   aggregates that  would otherwise share the same identity. As an example you
   might have a `User` and a `UserPreferences` aggregate that you wish
   to share the same identity. In this scenario you should specify a `prefix`
-  for each aggregate (e.g. "user-" and "user-preference-").
+  for each aggregate (e.g. `"user-"` and `"user-preference-"`).
 
   The prefix is used as the stream identity when appending and reading the
-  aggregate's events: "<identity_prefix><aggregate_uuid>". It can be a string or
+  aggregate's events: `"<identity_prefix><aggregate_uuid>"`. It can be a string or
   a zero arity function returning a string.
 
   ## Consistency
@@ -109,8 +109,8 @@ defmodule Commanded.Commands.Router do
     - `:eventual` (default) - don't block command dispatch while waiting for
       event handlers
 
-        :ok = BankApp.dispatch(command)
-        :ok = BankApp.dispatch(command, consistency: :eventual)
+          :ok = BankApp.dispatch(command)
+          :ok = BankApp.dispatch(command, consistency: :eventual)
 
     - `:strong` - block command dispatch until all strongly
       consistent event handlers and process managers have successfully processed
@@ -119,7 +119,7 @@ defmodule Commanded.Commands.Router do
       Use this when you have event handlers that update read models you need to
       query immediately after dispatching the command.
 
-        :ok = BankApp.dispatch(command, consistency: :strong)
+          :ok = BankApp.dispatch(command, consistency: :strong)
 
     - Provide an explicit list of event handler and process manager modules (or
       their configured names), containing only those handlers you'd like to wait
@@ -207,6 +207,7 @@ defmodule Commanded.Commands.Router do
   """
 
   alias Commanded.Commands.Router
+  alias Commanded.UUID
 
   defmacro __using__(opts) do
     quote do
@@ -364,6 +365,15 @@ defmodule Commanded.Commands.Router do
     end
   end
 
+  @type dispatch_resp ::
+          :ok
+          | {:ok, aggregate_state :: struct()}
+          | {:ok, aggregate_version :: non_neg_integer()}
+          | {:ok, execution_result :: Commanded.Commands.ExecutionResult.t()}
+          | {:error, :unregistered_command}
+          | {:error, :consistency_timeout}
+          | {:error, reason :: term()}
+
   @doc """
   Dispatch the given command to the registered handler.
 
@@ -376,14 +386,7 @@ defmodule Commanded.Commands.Router do
       :ok = BankRouter.dispatch(command)
 
   """
-  @callback dispatch(command :: struct()) ::
-              :ok
-              | {:ok, aggregate_state :: struct()}
-              | {:ok, aggregate_version :: non_neg_integer()}
-              | {:ok, execution_result :: Commanded.Commands.ExecutionResult.t()}
-              | {:error, :unregistered_command}
-              | {:error, :consistency_timeout}
-              | {:error, reason :: term()}
+  @callback dispatch(command :: struct()) :: dispatch_resp
 
   @doc """
   Dispatch the given command to the registered handler providing a timeout.
@@ -459,14 +462,7 @@ defmodule Commanded.Commands.Router do
   @callback dispatch(
               command :: struct(),
               timeout_or_opts :: non_neg_integer() | :infinity | Keyword.t()
-            ) ::
-              :ok
-              | {:ok, aggregate_state :: struct()}
-              | {:ok, aggregate_version :: non_neg_integer()}
-              | {:ok, execution_result :: Commanded.Commands.ExecutionResult.t()}
-              | {:error, :unregistered_command}
-              | {:error, :consistency_timeout}
-              | {:error, reason :: term()}
+            ) :: dispatch_resp
 
   defmacro __before_compile__(_env) do
     quote generated: true do
@@ -514,10 +510,10 @@ defmodule Commanded.Commands.Router do
 
           application = Keyword.fetch!(opts, :application)
           causation_id = Keyword.get(opts, :causation_id)
-          command_uuid = Keyword.get(opts, :command_uuid, UUID.uuid4())
+          command_uuid = Keyword.get_lazy(opts, :command_uuid, &UUID.uuid4/0)
           consistency = Keyword.fetch!(opts, :consistency)
-          correlation_id = Keyword.get(opts, :correlation_id, UUID.uuid4())
-          metadata = opts |> Keyword.fetch!(:metadata) |> validate_metadata()
+          correlation_id = Keyword.get_lazy(opts, :correlation_id, &UUID.uuid4/0)
+          metadata = Keyword.fetch!(opts, :metadata) |> validate_metadata()
 
           retry_attempts = Keyword.get(opts, :retry_attempts)
           timeout = Keyword.fetch!(opts, :timeout)
@@ -654,7 +650,7 @@ defmodule Commanded.Commands.Router do
   defp parse_opts([{param, _value} | _opts], _result) do
     raise """
     unexpected dispatch parameter "#{param}"
-    available params are: #{@register_params |> Enum.map(&to_string/1) |> Enum.join(", ")}
+    available params are: #{Enum.map_join(@register_params, ", ", &to_string/1)}
     """
   end
 

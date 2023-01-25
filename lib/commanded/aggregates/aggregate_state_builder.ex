@@ -1,12 +1,11 @@
 defmodule Commanded.Aggregates.AggregateStateBuilder do
   alias Commanded.Aggregates.Aggregate
-
   alias Commanded.EventStore
   alias Commanded.EventStore.RecordedEvent
   alias Commanded.EventStore.SnapshotData
   alias Commanded.Snapshotting
 
-  @read_event_batch_size 100
+  @read_event_batch_size 1_000
 
   @doc """
   Populate the aggregate's state from a snapshot, if present, and it's events.
@@ -29,7 +28,7 @@ defmodule Commanded.Aggregates.AggregateStateBuilder do
           }
 
         {:error, _error} ->
-          # No snapshot present, or exists but for outdated state, so use intial empty state
+          # No snapshot present, or exists but for outdated state, so use initial empty state
           %Aggregate{state | aggregate_version: 0, aggregate_state: struct(aggregate_module)}
       end
 

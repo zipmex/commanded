@@ -1,9 +1,8 @@
 defmodule Commanded.Aggregates.AggregateTelemetryTest do
   use ExUnit.Case
 
-  alias Commanded.Aggregates.Aggregate
-  alias Commanded.Aggregates.ExecutionContext
-  alias Commanded.DefaultApp
+  alias Commanded.Aggregates.{Aggregate, ExecutionContext}
+  alias Commanded.{DefaultApp, UUID}
 
   defmodule Commands do
     defmodule Ok do
@@ -25,7 +24,7 @@ defmodule Commanded.Aggregates.AggregateTelemetryTest do
   end
 
   defmodule ExampleAggregate do
-    alias Commands.{Ok, Error, RaiseException}
+    alias Commands.{Error, Ok, RaiseException}
 
     defstruct [:message]
 
@@ -37,7 +36,7 @@ defmodule Commanded.Aggregates.AggregateTelemetryTest do
       do: %ExampleAggregate{message: message}
   end
 
-  alias Commands.{Ok, Error, RaiseException}
+  alias Commands.{Error, Ok, RaiseException}
 
   setup do
     start_supervised!(DefaultApp)

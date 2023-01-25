@@ -9,6 +9,7 @@ defmodule Commanded.ProcessManagers.ProcessManagerRoutingTest do
   alias Commanded.ProcessManagers.RoutingProcessManager.Errored
   alias Commanded.ProcessManagers.RoutingProcessManager.Started
   alias Commanded.ProcessManagers.RoutingProcessManager.Stopped
+  alias Commanded.UUID
 
   setup do
     mock_event_store()
@@ -181,7 +182,7 @@ defmodule Commanded.ProcessManagers.ProcessManagerRoutingTest do
 
   defp mock_event_store do
     expect(MockEventStore, :subscribe_to, fn
-      _event_store, :all, name, pid, :origin, [] ->
+      _event_store, :all, name, pid, :origin, _opts ->
         assert is_binary(name)
         assert is_pid(pid)
 
